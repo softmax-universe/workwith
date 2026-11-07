@@ -82,7 +82,10 @@ EOF
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 # A restart under the old job leaves its server running; run.sh waits for it, so stop it.
 pkill -f "$HOME/$DIR/server/index.ts" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$p"
+# bootout returns before the old job is gone, and bootstrap fails ("5: Input/output error")
+# until it is, so try for a while.
+for i in 1 2 3 4 5 6 7 8 9 10; do launchctl bootstrap "gui/$(id -u)" "$p" 2>/dev/null && break; sleep 1; done
+launchctl print "gui/$(id -u)/$LABEL" >/dev/null || { echo "launchd did not take $LABEL"; exit 1; }
 # The first time, this waits for Serve to be turned on for the tailnet (it prints the link).
 tailscale serve --bg --https="$SERVE" "$PORT" > ~/"$DATA"/serve.log 2>&1 &
 sleep 5; cat ~/"$DATA"/serve.log
