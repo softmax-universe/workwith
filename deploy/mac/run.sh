@@ -5,11 +5,13 @@
 # Without it, Codinger restarts by starting a new, detached server and exiting (server/index.ts,
 # restart()), whose command line names server/index.ts from the start, while it builds. So
 # wait while any server of this checkout is up, then build and take over.
+# A second desk on the same Mac (install.sh with NAME=) sets CODINGER_HOME in its launchd job.
 set -u
 W=${1:?the checkout}
 cd "$W" || exit 1
-if [ -f "$HOME/.codinger/desk.env" ]; then set -a; . "$HOME/.codinger/desk.env"; set +a; fi
+D=${CODINGER_HOME:-$HOME/.codinger}
+if [ -f "$D/desk.env" ]; then set -a; . "$D/desk.env"; set +a; fi
 sleep 2
 while pgrep -qf "$W/server/index.ts"; do sleep 5; done
-npx vite build >> "$HOME/.codinger/server.log" 2>&1 || echo "vite build failed; serving the last build" >&2
+npx vite build >> "$D/server.log" 2>&1 || echo "vite build failed; serving the last build" >&2
 exec node "$W/server/index.ts"
