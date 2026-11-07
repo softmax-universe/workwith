@@ -2,7 +2,8 @@
 // people in (deploy/README.md). All of it is off unless the environment asks:
 //
 //   CODINGER_AGENT_NAME     the agent's name: the sidebar, the tab, "Message Ada"
-//   CODINGER_AGENT_AVATAR   an image file: its face in the sidebar
+//   CODINGER_AGENT_AVATAR   an image file: its face in the sidebar (unset: the workwith logo,
+//                           assets/workwith-logo.png)
 //   CODINGER_AGENT_CSS      a CSS file that sets its colours (no theme prompt then)
 //   CODINGER_AGENT_COLOR    the colour of the installed app's title bar, e.g. #0f4a44
 //   CODINGER_AGENT_ABOUT    one line on what the agent is for: the page's description in link previews
@@ -41,7 +42,9 @@ const env = process.env
 export const desk = (key: string): string | undefined => env[`CODINGER_${key}`] ?? env[`CODINER_${key}`]
 const existing = (file: string | undefined) => file && fs.existsSync(file) ? file : null
 const NAME = desk('AGENT_NAME')
-const AVATAR = existing(desk('AGENT_AVATAR'))
+// A named desk without a face of its own wears the workwith logo (assets/, with its sized copies).
+const LOGO = path.join(import.meta.dirname, '..', 'assets', 'workwith-logo.png')
+const AVATAR = existing(desk('AGENT_AVATAR')) ?? (NAME ? existing(LOGO) : null)
 const AVATAR_TYPE = AVATAR ? { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' }[path.extname(AVATAR).toLowerCase()] ?? 'application/octet-stream' : ''
 const THEME = existing(desk('AGENT_CSS'))
 const CWD = desk('AGENT_CWD') || undefined
