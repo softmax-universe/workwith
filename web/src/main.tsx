@@ -31,7 +31,7 @@ function App() {
   const needs = st.sessions.filter((s) => ['permission', 'asking', 'waiting'].includes(s.status)).length
   const name = st.agent?.name ?? 'Codinger'
   useEffect(() => { document.title = needs ? `(${needs}) ${name}` : name }, [needs, name])
-  useFavicon(st.sessions, st.settings.appearance)
+  useFavicon(st.sessions, st.settings.appearance, st.agent?.avatar ? `${ROOT}/agent/icon-64.png` : undefined)
 
   // The first load asks for a colour; the welcome stays until you close it.
   const [welcome, setWelcome] = useState(false)
