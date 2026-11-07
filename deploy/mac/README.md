@@ -24,7 +24,7 @@ serve`. The first time, Tailscale prints a link to turn on Serve for the tailnet
 - **From GitHub:** Codinger's updater offers what's on origin/main every 10 minutes.
 - **Made on the Mac:** commit there and push to GitHub (`gh auth login` on the Mac once), or
   fetch it from the laptop: `git fetch mini && git push origin mini/main:main`.
-- **A second desk on the same Mac:** `NAME=hyperdesk PORT=4546 SERVE=8446 deploy/mac/install.sh
+- **A second desk on the same Mac:** `NAME=hyperdesk PORT=4555 SERVE=8446 deploy/mac/install.sh
   mini`. It has its own checkout (`~/services/hyperdesk`), data (`~/.hyperdesk`, which its
   launchd job passes as `CODINGER_HOME`), job (`app.codinger.hyperdesk`), git remote
   (`git push hyperdesk main`) and URL (`https://<mac>.<tailnet>.ts.net:8446`), so one desk can

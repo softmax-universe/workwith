@@ -2,9 +2,9 @@
 # Codinger on a Mac on your tailnet (a Mac mini at home, say), from a laptop with SSH to it.
 # Safe to re-run. See deploy/mac/README.md.
 #   deploy/mac/install.sh <ssh host> [people, e.g. "ada@example.com=Ada,grace@example.com=Grace"]
-# Optional: PORT (4545), DIR (the Mac's checkout, relative to its home; dev/workwith),
+# Optional: PORT (4545; the desk also takes PORT+1 for artifacts), DIR (the Mac's checkout, relative to its home; dev/workwith),
 # REPO (what the Mac clones; this checkout's origin).
-# A second desk on the same Mac: NAME=hyperdesk PORT=4546 SERVE=8446 deploy/mac/install.sh mini
+# A second desk on the same Mac: NAME=hyperdesk PORT=4555 SERVE=8446 deploy/mac/install.sh mini
 # gives it its own data (~/.hyperdesk, as CODINGER_HOME), checkout (~/services/hyperdesk),
 # launchd job (app.codinger.hyperdesk), name (Hyperdesk) and URL (https://mini.<tailnet>.ts.net:8446).
 set -euo pipefail
