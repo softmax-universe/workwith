@@ -269,8 +269,15 @@ Object.defineProperties(state, {
 const looksFrom = () => state.web ? machineList()[0]?.name : LOCAL
 // Where the artifacts server is, from this page: on the web, artifacts.codinger.app for the
 // machine they come from (remote/src/index.ts); null on the hub's other address, which has none.
+const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/
+// An artifact's frame runs in an origin of its own: the artifacts server's, or none ("null") when the
+// page's server passes it through; a message to it then can't name its origin.
+export const frameOrigin = (src: string) => { const o = new URL(src, location.href).origin; return o === location.origin ? '*' : o }
 export function artifactsBase(port: number): string | null {
-  if (!state.web) return `http://127.0.0.1:${port}`
+  // In a browser on this machine, the artifacts server's own port: an origin apart from the page.
+  // In one on another machine (a desk behind a proxy), that port is the server's own 127.0.0.1,
+  // so the page's server passes the artifacts through, sandboxed (server/index.ts, proxyArtifacts).
+  if (!state.web) return LOOPBACK.test(location.hostname) ? `http://127.0.0.1:${port}` : `${location.origin}${ROOT}/_artifacts`
   const m = looksFrom()
   return m && location.hostname.startsWith('web.') ? `${location.origin.replace('//web.', '//artifacts.')}/m/${m}` : null
 }

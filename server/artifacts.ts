@@ -193,7 +193,7 @@ The page reads its data by slot name: \`const rows = await prolifica.data('rows'
 - After you make or change an artifact, call show_artifact with its name. It shows the page to the user and returns the script errors of the load. Fix them until it loads clean.
 - To show an artifact in a message too, write \`![caption](artifact:<name>@<n>)\` on a line of its own, with the version n that show_artifact returned. Do not put its index.html in a message as a markdown image: that copy has no data and no \`prolifica\`.
 - To change an artifact, edit it in place, even one another session made: Codinger records which session changed what.
-- show_artifact also takes \`url\`, to show a page that a dev server on this machine serves.
+- show_artifact also takes \`url\`, to show a page that a dev server on this machine serves. The user's browser loads it, so it works only when that browser is on this machine.
 `
 
 // What each artifact's page reported from its last load in a browser: script errors,
@@ -323,8 +323,12 @@ export function startHost(port: number, uiOrigins: () => string[]): Promise<numb
     if (!allowed.has(req.headers.host ?? '')) { res.writeHead(403).end(); return }
     const url = new URL(req.url ?? '/', 'http://x')
     // Through web.codinger.app (server/remote.ts): the pages are at artifacts.codinger.app/m/<machine>/.
+    // Through the main server, for a browser on another machine (ARTIFACTS_PATH): at <base>/_artifacts/,
+    // on the page's own origin, which the main server names.
     const at = String(req.headers['x-codinger-base'] ?? '')
-    const prefix = /^\/m\/[a-z0-9-]{1,40}$/.test(at) ? at : ''
+    const prefix = /^\/m\/[a-z0-9-]{1,40}$/.test(at) || /^(\/[\w.~-]+)*\/_artifacts$/.test(at) ? at : ''
+    const own = prefix.endsWith('/_artifacts') ? String(req.headers['x-codinger-origin'] ?? '') : ''
+    const origins = own ? [own, ...uiOrigins()] : uiOrigins()
     const base = { 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' }
     const [, first, ...rest] = url.pathname.split('/').map((p) => { try { return decodeURIComponent(p) } catch { return '' } })
     try {
@@ -348,7 +352,7 @@ export function startHost(port: number, uiOrigins: () => string[]): Promise<numb
       if (rest.length === 1 && rest[0] === '') {
         // The pane says which window holds it, so the bridge's messages go there and nowhere else.
         const app = url.searchParams.get('app') ?? ''
-        res.writeHead(200, { ...base, 'content-type': 'text/html; charset=utf-8' }).end(page(src, uiOrigins().includes(app) ? app : uiOrigins()[0], prefix))
+        res.writeHead(200, { ...base, 'content-type': 'text/html; charset=utf-8' }).end(page(src, origins.includes(app) ? app : origins[0], prefix))
         return
       }
       const cors = { 'access-control-allow-origin': '*' }

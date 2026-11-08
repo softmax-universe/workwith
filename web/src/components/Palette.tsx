@@ -116,7 +116,9 @@ export function Palette() {
     // The same circle in an artifact's frame, which the artifact server's script tells of.
     const fromFrame = (e: MessageEvent) => {
       const base = artifactsBase(state.artifactsPort)
-      if (e.data?.codinger === 'palette' && base && e.origin === new URL(base).origin) setOpen(true)
+      if (e.data?.codinger !== 'palette' || !base) return
+      // Passed through the page's server, the frame's origin is "null": know it by its window.
+      if (e.origin === new URL(base).origin || [...document.querySelectorAll('iframe')].some((f) => f.contentWindow === e.source && f.src.startsWith(base))) setOpen(true)
     }
     window.addEventListener('message', fromFrame)
     return () => { document.removeEventListener('keydown', key); window.removeEventListener('codinger:palette', show); window.removeEventListener('message', fromFrame); stop() }

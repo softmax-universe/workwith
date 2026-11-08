@@ -60,6 +60,9 @@ export const DEFAULT_DIR = path.resolve((desk('DEFAULT_DIR') || CWD || os.homedi
 
 export const ASK_NAME = desk('ASK_NAME') === '1'
 export const BASE = parseBase(desk('BASE'))
+// People reach this desk through a proxy (a host name, a path or a sign-in header of its own):
+// their browsers are on other machines, where this machine's localhost is not.
+export const PROXIED = !!(desk('HOSTS') || BASE || desk('USER_HEADER'))
 
 export const agentInfo = (): AgentInfo | undefined =>
   NAME ? { name: NAME, avatar: !!AVATAR, theme: !!THEME, ...(CWD ? { cwd: CWD } : {}) } : undefined

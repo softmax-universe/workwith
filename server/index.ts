@@ -18,7 +18,7 @@ import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
 import { findHistory, importTranscript, lastCache, listDirs, listHistory } from './history.ts'
-import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, workerNotesPrompt } from './prompts.ts'
+import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
 import { bumpEmoji, cleanEmojiUse } from '../shared/emoji.ts'
@@ -32,7 +32,7 @@ import { autoTitle } from './describe.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
-import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, billing, desk, personOf, serveAgent } from './agent.ts'
+import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
 import { AGENTS_FILE, agentsPrompt, readAgentsMd, writeAgentsMd } from './agentsmd.ts'
@@ -296,7 +296,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -816,7 +816,7 @@ watchArtifacts(() => broadcast(artifactsMsg()))
 function artifactTool(id: string): Tool {
   return {
     name: 'show_artifact',
-    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves.',
+    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves; that works only in a browser on this machine, not for a user on another one.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The artifact\'s folder name' }, url: { type: 'string', description: 'Instead: http://localhost:<port>/...' } } },
     run: async (args) => {
       const s = get(id)
@@ -825,7 +825,9 @@ function artifactTool(id: string): Tool {
         try { u = new URL(String(args.url)) } catch { return 'Give a full address, like http://localhost:5173/.' }
         if (!/^https?:$/.test(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return 'Only pages on this machine (localhost) show in the pane.'
         broadcast({ type: 'preview', sessionId: id, target: { url: u.href }, at: Date.now() })
-        return `Shown in the preview pane: ${u.href}`
+        // The pane loads it in the user's browser, whose localhost is this machine's only on this machine.
+        if (PROXIED) return `Sent to the preview pane: ${u.href}. But the user's browser is on another machine, where this address does not reach this machine, so the pane is probably empty. Show a screenshot instead, or make an artifact.`
+        return `Shown in the preview pane: ${u.href}. If the user's browser is on another machine (they reach this desk through web.codinger.app or a proxy), it can't load this address: show a screenshot instead.`
       }
       const name = String(args?.name ?? '').trim()
       const bad = checkArtifact(name)
@@ -836,7 +838,7 @@ function artifactTool(id: string): Tool {
       const v = showArtifact(name, { sid: id, seq: ev?.seq ?? 0, ts: Date.now(), show: true, tool: call?.type === 'tool_use' ? call.id : undefined })
       artifactsChanged()
       broadcast({ type: 'preview', sessionId: id, target: { artifact: name }, at: Date.now() })
-      return `Shown in the preview pane (http://127.0.0.1:${artifactsPort}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
+      return `Shown in the preview pane (${PROXIED ? `${BASE}/_artifacts` : `http://127.0.0.1:${artifactsPort}`}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
     },
   }
 }
@@ -1794,6 +1796,9 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
 const server = http.createServer(async (req, res) => {
   try {
+    // An artifact's page loads its data and reports its errors from a sandboxed frame, whose
+    // origin is "null": it comes before the check of the origin, and reaches only the artifacts.
+    if (localHost(req) && /^\/_artifacts(\/|$)/.test(underBase(BASE, req.url ?? '/'))) return proxyArtifacts(req, res, underBase(BASE, req.url ?? '/').slice('/_artifacts'.length) || '/')
     if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'workwith only answers requests from its own page')
     // Under CODINGER_BASE the page is at <base>/, so its service worker can have that scope.
     if (BASE && req.url === BASE) { res.writeHead(308, { location: BASE + '/' }).end(); return }
@@ -1819,6 +1824,21 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) send(res, status, { error: e instanceof Error ? e.message : String(e) })
   }
 })
+
+// The artifacts server listens on 127.0.0.1 only, which a browser on another machine can't reach
+// (issue #3): the page frames artifacts from <base>/_artifacts/ then (web/src/store.ts, artifactsBase).
+// That is the page's own origin, so each response is sandboxed with no allow-same-origin: an
+// artifact runs in an origin of its own, as it does on the artifacts server's port.
+const ARTIFACT_SANDBOX = 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-modals'
+function proxyArtifacts(req: http.IncomingMessage, res: http.ServerResponse, rest: string) {
+  const headers = { ...req.headers, host: `127.0.0.1:${artifactsPort}`, 'x-codinger-base': `${BASE}/_artifacts`, 'x-codinger-origin': originOf(req) }
+  const p = http.request({ host: '127.0.0.1', port: artifactsPort, method: req.method, path: rest, headers }, (r) => {
+    res.writeHead(r.statusCode ?? 502, { ...r.headers, 'content-security-policy': ARTIFACT_SANDBOX })
+    r.pipe(res)
+  })
+  p.on('error', () => { if (!res.headersSent) res.writeHead(502).end('The artifacts server did not answer') })
+  req.pipe(p)
+}
 
 const DIST = path.join(ROOT, 'dist')
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' }

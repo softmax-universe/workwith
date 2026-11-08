@@ -9,7 +9,7 @@
 // makes a click in the page start a comment instead of doing what the page does with it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { addDraft, draftsOf, removeDraft, state, uid, useStore, type ArtDraft } from '../store.ts'
+import { addDraft, draftsOf, frameOrigin, removeDraft, state, uid, useStore, type ArtDraft } from '../store.ts'
 import type { ArtifactAnchor, ImageRef } from '../../../shared/types.ts'
 import { isReaction } from '../emoji.ts'
 import { focusField } from './Inputs.tsx'
@@ -58,7 +58,7 @@ export function ArtifactNotes({ sid, artifact, v, mtime, frame, mode, setMode }:
   const post = (m: Record<string, unknown>) => {
     const f = frame.current
     if (!f?.contentWindow || !f.src) return
-    f.contentWindow.postMessage({ codinger: 'notes', ...m }, new URL(f.src).origin)
+    f.contentWindow.postMessage({ codinger: 'notes', ...m }, frameOrigin(f.src))
   }
   const marks = JSON.stringify([...sent.map((n) => ({ id: n.id, kind: 'sent', anchor: n.anchor })), ...all.map((d) => ({ id: d.id, kind: 'draft', anchor: d.anchor }))])
   const focus = lit ?? focused

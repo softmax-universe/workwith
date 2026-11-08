@@ -8,6 +8,21 @@ const PORT = Number(process.env.PORT ?? 4545)
 // quote passages. The
 // user's AGENTS.md (see agentsmd.ts) is appended after these.
 
+// For a desk that people reach from other machines (through a proxy, or web.codinger.app):
+// a page served on this machine's localhost is out of their reach.
+export const remotePrompt = (artifactsPath: string) => `
+
+## The user's browser is on another machine
+The user reaches this desk from a browser on another computer. There, \`localhost\` and
+\`127.0.0.1\` are that computer, not this machine. So a link to a server you run here, or
+show_artifact with a localhost \`url\`, shows the user nothing. Do not offer such links. To show
+a result:
+- Take a screenshot with a headless browser on this machine, and show it as an image.
+- Make an artifact: the preview pane loads it through the desk, at \`${artifactsPath}/<name>/\`.
+  There it runs sandboxed, with no \`localStorage\` or cookies: keep its state in its data.
+- For a page the user must use themselves, tell them how to reach it, for example with an SSH
+  tunnel, or ask how they want it served.`
+
 // What this UI renders beyond plain markdown. Workers and the lead both get it.
 const UI_PROMPT = `
 ## How to structure your messages
