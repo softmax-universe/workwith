@@ -9,9 +9,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Event, ImageRef, SessionMeta, Settings } from '../shared/types.ts'
+import { codingerEnv } from './oldenv.ts'
 
 const OLD_DATA = path.join(os.homedir(), '.codiner')
-export const DATA = process.env.CODINGER_HOME ?? process.env.CODINER_HOME ?? homeData()
+export const DATA = codingerEnv('HOME') ?? homeData()
 // Codinger was called Codiner until October 2026. Move ~/.codiner once, and leave a link
 // there for the sessions and tasks that a restart keeps running, which still use the old path.
 // Claude Code keeps the lead's conversation under its directory's name: move that too.
