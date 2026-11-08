@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useEscape } from '../escape.ts'
 import type { ImageRef, PermissionMode, SessionMeta } from '../../../shared/types.ts'
 import { api, currentMachine, globalId, localId, LOCAL, machineList, machineOf, select, setComposer, state } from '../store.ts'
-import { DirPicker } from './DirPicker.tsx'
+import { DirPicker, shortPath } from './DirPicker.tsx'
 import { FlagPicker } from './FlagPicker.tsx'
 import { McpPicker } from './McpDialog.tsx'
 import { SessionPicker } from './SessionPicker.tsx'
@@ -29,6 +29,9 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   const [busy, setBusy] = useState(false)
   // Whether the typed directory exists; if it doesn't, Create makes it first.
   const [missing, setMissing] = useState(false)
+  // Whether the directory is in a git repository already; if not, you may ask for git init.
+  const [inGit, setInGit] = useState(true)
+  const [gitInit, setGitInit] = useState(false)
   const first = useRef<HTMLDivElement>(null)
   // Model, permissions, flags, MCP servers and parent: under "Advanced settings", above the first message, open or closed as you left it.
   const [advanced, setAdvanced] = useState(() => localStorage.getItem('codinger.newSession.advanced') === '1')
@@ -44,11 +47,11 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   ].filter(Boolean).join(' · ')
 
   useEffect(() => {
-    if (!cwd.trim()) { setMissing(false); return }
+    if (!cwd.trim()) { setMissing(false); setInGit(true); return }
     let live = true
     const t = setTimeout(() => {
-      void api<{ kind: 'dir' | 'file' | 'missing' }>(`/api/fs/stat?path=${encodeURIComponent(cwd)}`, 'GET', undefined, machine)
-        .then((r) => { if (live) setMissing(r.kind === 'missing') }).catch(() => {})
+      void api<{ kind: 'dir' | 'file' | 'missing'; git?: boolean }>(`/api/fs/stat?path=${encodeURIComponent(cwd)}`, 'GET', undefined, machine)
+        .then((r) => { if (live) { setMissing(r.kind === 'missing'); setInGit(r.kind === 'file' || !!r.git) } }).catch(() => {})
     }, 200)
     return () => { live = false; clearTimeout(t) }
   }, [cwd, machine])
@@ -56,7 +59,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   const create = async () => {
     setBusy(true); setErr(null)
     try {
-      const meta = await api<SessionMeta>('/api/sessions', 'POST', { cwd, title, model: model || null, permissionMode: mode, flags, parentId: parentId ? localId(parentId) : null, ...(mcp ? { mcp } : {}), group: machine === start ? group : undefined, mkdir: missing }, machine)
+      const meta = await api<SessionMeta>('/api/sessions', 'POST', { cwd, title, model: model || null, permissionMode: mode, flags, parentId: parentId ? localId(parentId) : null, ...(mcp ? { mcp } : {}), group: machine === start ? group : undefined, mkdir: missing, gitInit: gitInit && !inGit }, machine)
       const id = globalId(machine, meta.id)
       if (prompt.trim() || images.length) await api(`/api/sessions/${id}/send`, 'POST', { parts: [{ kind: 'text', text: prompt, images }] })
       else setComposer(id, { text: '' })
@@ -83,6 +86,8 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
         <div className="field">Directory
           <DirPicker value={cwd} onChange={setCwd} onPick={() => focusField(first.current?.querySelector<HTMLElement>('[contenteditable]'))} autoFocus={!initial} machine={machine} />
         </div>
+        {/* Not offered for your home folder: a repository there would hold everything. */}
+        {!inGit && shortPath(cwd.trim(), machine).replace(/\/$/, '') !== '~' && <label className="settings-check new-git"><input type="checkbox" checked={gitInit} onChange={(e) => setGitInit(e.target.checked)} /> Start a git repository here with <code>git init</code></label>}
         <label>Title <input value={title} placeholder="Defaults to the folder name" onChange={(e) => setTitle(e.target.value)} /></label>
         <button type="button" className="adv-toggle" aria-expanded={advanced} onClick={() => showAdvanced(!advanced)}>
           <span className="adv-label"><ChevronIcon size={12} className={advanced ? 'open' : undefined} />Advanced settings{!advanced && summary && <span className="muted"> · {summary}</span>}</span>

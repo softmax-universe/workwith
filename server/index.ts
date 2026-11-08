@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
 import { criticalUnanswered, inboxLabel, inboxParts, openItemsOf } from '../shared/inbox.ts'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
@@ -395,7 +395,7 @@ function get(id: string): Session {
   return s
 }
 
-function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; mcp?: string[] }): Session {
+function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; gitInit?: boolean; mcp?: string[] }): Session {
   const flags = Array.isArray(o.flags) ? o.flags.map((f) => String(f).trim()).filter(Boolean) : []
   for (const f of flags) { const p = flagProblem(f); if (p) throw new HttpError(400, p) }
   const cwd = path.resolve(expandHome(String(o.cwd ?? '').trim()))
@@ -403,6 +403,10 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
     try { fs.mkdirSync(cwd, { recursive: true }) } catch (e) { throw new HttpError(400, `Can't create ${cwd}: ${(e as Error).message}`) }
   }
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new HttpError(400, `Not a directory: ${cwd}`)
+  // A new project: a git repository from the start, if asked and it is not in one yet.
+  if (o.gitInit && !inGit(cwd)) {
+    try { execFileSync('git', ['init', '-q'], { cwd, timeout: 15_000, stdio: 'pipe' }) } catch (e) { throw new HttpError(400, `git init failed in ${cwd}: ${(e as Error).message}`) }
+  }
   const mode = MODES.includes(o.permissionMode as PermissionMode) ? o.permissionMode! : 'auto'
   const group = o.group ? String(o.group) : o.parentId ? sessions.get(o.parentId)?.meta.group : undefined
   const s = adopt(newMeta({
@@ -420,6 +424,14 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
   }))
   metaChanged()
   return s
+}
+
+// Whether a directory is in a git work tree: it or a folder above it has .git.
+function inGit(dir: string): boolean {
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return true
+    if (path.dirname(d) === d) return false
+  }
 }
 
 // Pick up a session from Claude Code's own history, conversation included.
@@ -1370,7 +1382,19 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const p = path.resolve(expandHome((url.searchParams.get('path') || '').trim() || '~'))
     let kind: 'dir' | 'file' | 'missing' = 'missing'
     try { kind = fs.statSync(p).isDirectory() ? 'dir' : 'file' } catch {}
-    return send(res, 200, { path: p, kind })
+    return send(res, 200, { path: p, kind, git: kind === 'dir' && inGit(p) })
+  }
+  if (a === 'fs' && id === 'mkdir' && method === 'POST') {
+    // A new folder from the folder browser: one name in a folder that is there.
+    const body = await json(req)
+    const parent = path.resolve(expandHome(String(body.parent ?? '').trim() || '~'))
+    const name = String(body.name ?? '').trim()
+    if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new HttpError(400, 'Give a folder name, with no slashes')
+    if (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory()) throw new HttpError(400, `Not a directory: ${parent}`)
+    const p = path.join(parent, name)
+    if (fs.existsSync(p)) throw new HttpError(400, `${p} is there already`)
+    try { fs.mkdirSync(p) } catch (e) { throw new HttpError(400, `Can't create ${p}: ${(e as Error).message}`) }
+    return send(res, 200, { path: p })
   }
   if (a === 'fs' && id === 'exists' && method === 'POST') {
     // Paths named in a reply (absolute, ~/, or under the session's directory, maybe with :line): which are there.
