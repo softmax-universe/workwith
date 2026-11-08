@@ -304,7 +304,9 @@ export function RichInput({ value, onChange, images, onImages, placeholder, auto
     const sel = selectionOffsets(el)
     if (!sel || composing.current) return false
     const plainEnter = e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey
-    const r = plainEnter ? enterKey(fromDom(el), sel[0], sel[1]) : wrapKey(e, fromDom(el), sel[0], sel[1])
+    // Ctrl+J is a line break, as in a terminal, whatever Enter does.
+    const ctrlJ = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'j'
+    const r = plainEnter || ctrlJ ? enterKey(fromDom(el), sel[0], sel[1]) : wrapKey(e, fromDom(el), sel[0], sel[1])
     if (!r) return false
     edit(r.value, r.start, r.end)
     return true

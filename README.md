@@ -76,7 +76,8 @@ ever reports a key-based auth source. The sidebar footer shows your plan's 5-hou
   is bold, code is boxed, headings are big, and the markers (`**`, `_`, `#`…) show only in
   the span or line the caret is in (`web/src/mdlive.ts`). Cmd+B, Cmd+I, Cmd+E (code),
   Cmd+Shift+X (strikethrough) and Cmd+K (link) wrap the selection, or unwrap it. Enter in a
-  list item starts the next one. The inputs keep their own undo (Cmd+Z, Cmd+Shift+Z).
+  list item starts the next one. Ctrl+J is a line break, as in a terminal. The inputs keep
+  their own undo (Cmd+Z, Cmd+Shift+Z).
 - **Sent replies stay put.** Sent comments stay in the margin as read-only cards; your sent
   message shows what you typed, with comments, reactions and answers folded into one line
   ("2 comments, 1 reaction").
