@@ -31,7 +31,7 @@ import { flagProblem } from '../shared/flags.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
-import { agentInfo, agentPage, ASK_NAME, BASE, billing, desk, personOf, serveAgent } from './agent.ts'
+import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
 import { AGENTS_FILE, agentsPrompt, readAgentsMd, writeAgentsMd } from './agentsmd.ts'
@@ -1865,7 +1865,7 @@ server.on('upgrade', (req, socket, head) => {
     sockets.add(ws)
     present.set(ws, personOf(req))
     ws.on('close', () => { sockets.delete(ws); present.delete(ws); broadcast({ type: 'people', people: people() }) })
-    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
+    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), defaultDir: DEFAULT_DIR, auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
     ws.send(JSON.stringify({ type: 'tasks', tasks: allTasks() } satisfies ServerMsg))
     ws.send(JSON.stringify(artifactsMsg()))
     broadcast({ type: 'people', people: people() })

@@ -51,6 +51,7 @@ CODINGER_SUPERVISED=1
 CODINGER_USER_HEADER=Tailscale-User-Login
 CODINGER_HOSTS=$host
 CODINGER_PEOPLE='$PEOPLE'
+# The folder a new session starts in (unset: ~): CODINGER_DEFAULT_DIR=~/dev
 # A named desk: CODINGER_AGENT_NAME, CODINGER_AGENT_AVATAR, ... (server/agent.ts)
 EOF
   # A second desk shares the user's Claude Code history; it offers only its own.

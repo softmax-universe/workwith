@@ -11,6 +11,8 @@
 //                           it, serve as the tab icon and preview image; the avatar stands in otherwise)
 //   CODINGER_AGENT_CWD      the agent's own folder: "+ New session" starts a session there at
 //                           once, with no dialog (people at a desk have no other folder to pick)
+//   CODINGER_DEFAULT_DIR    the folder the new session dialog starts in (unset: the agent's folder,
+//                           else the home folder); for a desk where most work is not in a project
 //   CODINGER_USER_HEADER    the header the proxy names the signed-in person in
 //   CODINGER_PEOPLE         names to show: "ada@example.com=Ada,grace@example.com=Grace"
 //                           (otherwise the login before the @, capitalised)
@@ -33,6 +35,7 @@
 //                           e.g. /desk/ada (no trailing slash); unset, the root (server/base.ts)
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type http from 'node:http'
 import { billingState } from './billing.ts'
@@ -51,6 +54,9 @@ const THEME = existing(desk('AGENT_CSS'))
 const CWD = desk('AGENT_CWD') || undefined
 const ABOUT = desk('AGENT_ABOUT')?.trim() || undefined
 const ICON_SIZES = new Set(['32', '64', '180', '512'])
+
+// The folder a new session starts in, unless you pick another one: absolute, as ~ is the server's.
+export const DEFAULT_DIR = path.resolve((desk('DEFAULT_DIR') || CWD || os.homedir()).replace(/^~(?=$|[\\/])/, os.homedir()))
 
 export const ASK_NAME = desk('ASK_NAME') === '1'
 export const BASE = parseBase(desk('BASE'))

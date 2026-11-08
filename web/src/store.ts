@@ -44,6 +44,7 @@ export type Machine = {
   tasks: Task[]
   platform: string
   home: string
+  defaultDir?: string      // the folder the new session dialog starts in
   auth: AuthState
   stale: boolean
   staleAt?: number         // the time of its newest code on disk
@@ -510,7 +511,7 @@ function onServer(m: ServerMsg, machine: string) {
   const looks = looksFrom() === machine
   switch (m.type) {
     case 'hello':
-      Object.assign(M, { sessions: own(m.sessions), settings: m.settings, usage: m.usage, loaded: true, platform: m.platform, home: m.home, auth: m.auth ?? { state: 'ok' }, stale: !!m.stale, staleAt: m.staleAt, update: m.update, remote: m.remote, device: m.device })
+      Object.assign(M, { sessions: own(m.sessions), settings: m.settings, usage: m.usage, loaded: true, platform: m.platform, home: m.home, defaultDir: m.defaultDir, auth: m.auth ?? { state: 'ok' }, stale: !!m.stale, staleAt: m.staleAt, update: m.update, remote: m.remote, device: m.device })
       if (looks) applyAppearance(m.settings.appearance)
       if (state.restarting === machine) state.restarting = null
       // An agent's desk (server/agent.ts) and who this browser is: the page's own machine says.

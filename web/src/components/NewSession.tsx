@@ -14,7 +14,10 @@ import { ChevronIcon } from './Icons.tsx'
 export function NewSession({ cwd: initial, machine: start = currentMachine(), group, title: initialTitle = '', prompt: initialPrompt = '', onClose }: { cwd: string; machine?: string; group?: string; title?: string; prompt?: string; onClose(): void }) {
   useEscape(onClose)
   const [machine, setMachine] = useState(start)
-  const [cwd, setCwd] = useState(initial)
+  // With no folder given: the machine's default folder (CODINGER_DEFAULT_DIR, else home), as ~/...
+  const startDir = (m: string) => { const d = state.machines[m]?.defaultDir; return d ? shortPath(d, m) : '' }
+  const [startCwd] = useState(() => initial || startDir(start))
+  const [cwd, setCwd] = useState(startCwd)
   const [title, setTitle] = useState(initialTitle)
   const [model, setModel] = useState('')
   const [mode, setMode] = useState<PermissionMode>('auto')
@@ -77,14 +80,14 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
         <h2>New session</h2>
         {machineList().length > 1 && (
           <label>Machine
-            <select value={machine} onChange={(e) => { setMachine(e.target.value); setCwd(''); setParentId(''); setMcp(null); setImages([]) }}>
+            <select value={machine} onChange={(e) => { setMachine(e.target.value); setCwd(startDir(e.target.value)); setParentId(''); setMcp(null); setImages([]) }}>
               {machineList().map((m) => <option key={m.name} value={m.name}>{m.name === LOCAL ? `This machine${state.self ? ` (${state.self})` : ''}` : m.name}</option>)}
             </select>
           </label>
         )}
-        {/* With a folder given (the + on a project), start in the first message: focus on the folder would open its menu. */}
+        {/* With a folder given (the + on a project, or the default folder), start in the first message: focus on the folder would open its menu. */}
         <div className="field">Directory
-          <DirPicker value={cwd} onChange={setCwd} onPick={() => focusField(first.current?.querySelector<HTMLElement>('[contenteditable]'))} autoFocus={!initial} machine={machine} />
+          <DirPicker value={cwd} onChange={setCwd} onPick={() => focusField(first.current?.querySelector<HTMLElement>('[contenteditable]'))} autoFocus={!startCwd} machine={machine} />
         </div>
         {/* Not offered for your home folder: a repository there would hold everything. */}
         {!inGit && shortPath(cwd.trim(), machine).replace(/\/$/, '') !== '~' && <label className="settings-check new-git"><input type="checkbox" checked={gitInit} onChange={(e) => setGitInit(e.target.checked)} /> Start a git repository here with <code>git init</code></label>}
@@ -116,7 +119,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
           </div>
         </>}
         <div className="field" ref={first}>First message (optional)
-          <RichInput value={prompt} onChange={setPrompt} images={images} onImages={setImages} onSubmit={() => void create()} minRows={4} machine={machine} autoFocus={!!initial} uploadDir={cwd} />
+          <RichInput value={prompt} onChange={setPrompt} images={images} onImages={setImages} onSubmit={() => void create()} minRows={4} machine={machine} autoFocus={!!startCwd} uploadDir={cwd} />
         </div>
         {err && <div className="notice error">{err}</div>}
         <div className="modal-actions">
