@@ -32,6 +32,7 @@ import { autoTitle } from './describe.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
+import { firstEmoji, iconFile, iconOf, iconType } from './projecticons.ts'
 import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
@@ -363,8 +364,6 @@ if (!settings.autoModeMigrated) {
   saveSettings(settings)
   metaChanged()
 }
-// The machine started after the last save of sessions.json: a crash or a reboot, not a server stop.
-const MACHINE_RESTARTED = (() => { try { return fs.statSync(path.join(DATA, 'sessions.json')).mtimeMs < Date.now() - os.uptime() * 1000 } catch { return false } })()
 // Busy sessions the last server handed on keep going; any other claude process it left is stopped.
 Proc.sweep(new Set([...sessions.values()].map((s) => s.reattach()).filter((k): k is string => !!k)))
 // The others that were mid-turn lost their turn: they go on, if you asked for that
@@ -372,11 +371,10 @@ Proc.sweep(new Set([...sessions.values()].map((s) => s.reattach()).filter((k): k
 setImmediate(() => { for (const s of sessions.values()) if (s.cut) resumeCut(s) })
 function resumeCut(s: Session) {
   s.cut = false
-  const why = MACHINE_RESTARTED ? 'The machine restarted' : 'The server stopped'
-  if (settings.resumeCut === false) { s.notice(`${why} during Claude's turn. It goes on when you send a message.`, 'warn'); return }
-  if (holdReasons(s, true).length) { s.notice(`${why} during Claude's turn. Its prompt cache has expired, so it goes on only when you send a message.`, 'warn'); return }
-  s.notice(`${why} during Claude's turn. Claude goes on.`)
-  s.send([{ kind: 'text', text: `[Codinger] ${why} during your last turn, and the turn ended there. Background tasks and servers you started are gone too. Go on from where you stopped.` }], { from: 'codinger', ...hiddenFor(s, []) })
+  if (!settings.resumeCut) return
+  if (holdReasons(s, true).length) { s.notice('The server stopped during Claude\'s turn. Its prompt cache has expired, so it goes on only when you send a message.'); return }
+  s.notice('The server stopped during Claude\'s turn. Claude goes on.')
+  s.send([{ kind: 'text', text: '[Codinger] The server stopped during your last turn, and the turn ended there. Go on from where you stopped.' }], { from: 'codinger', ...hiddenFor(s, []) })
 }
 startNotes({ sessions: () => sessions.values(), settings: () => settings, usage: () => usage, changed: metaChanged })
 startTasks({ changed: (tasks) => broadcast({ type: 'tasks', tasks }), ended: taskEnded })
@@ -1280,6 +1278,36 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     saveSettings(settings)
     broadcast({ type: 'settings', settings })
     if (body.autoUpdate) updateModeChanged()
+    return send(res, 200, settings)
+  }
+  // An emoji Claude picked for a repository with no icon: kept, so it is asked once.
+  const learnEmoji = (root: string, emoji: string) => {
+    settings = { ...settings, projectEmoji: { ...settings.projectEmoji, [root]: emoji } }
+    saveSettings(settings)
+    broadcast({ type: 'settings', settings })
+  }
+  // Project icons for the sidebar (server/projecticons.ts): the URL for each folder asked of, or null
+  // for the critter; the icon a repository has, for a folder a session works in; and one set by hand
+  // (an image from /api/images, 'none' for the critter, or null to go back to what the repository has).
+  if (a === 'project-icons' && method === 'GET') return send(res, 200, Object.fromEntries(url.searchParams.getAll('cwd').map((cwd) => [cwd, iconOf(settings.projectIcons, settings.projectEmoji, cwd, learnEmoji)])))
+  if (a === 'project-icon' && method === 'GET') {
+    const cwd = url.searchParams.get('cwd') ?? ''
+    const file = [...sessions.values()].some((s) => s.meta.cwd === cwd) ? iconFile(settings.projectIcons, cwd) : null
+    if (!file) throw new HttpError(404, 'No icon')
+    return sendFile(req, res, file, fs.statSync(file).size, { 'content-type': iconType(file), 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'cache-control': 'max-age=31536000, immutable' })
+  }
+  if (a === 'project-icons' && method === 'PUT') {
+    const body = await json(req)
+    const cwd = String(body.cwd ?? '')
+    const icon = body.icon === 'none' || (typeof body.icon === 'string' && /^\/api\/images\/[\w.-]+$/.test(body.icon)) ? body.icon as string
+      : typeof body.icon === 'string' ? firstEmoji(body.icon) : null
+    if (!cwd) throw new HttpError(400, 'No folder')
+    const icons = { ...settings.projectIcons }
+    if (icon) icons[cwd] = icon
+    else delete icons[cwd]
+    settings = { ...settings, projectIcons: icons }
+    saveSettings(settings)
+    broadcast({ type: 'settings', settings })
     return send(res, 200, settings)
   }
   // What the usage meter has measured, to see how steady its estimate is.

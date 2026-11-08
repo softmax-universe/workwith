@@ -96,6 +96,20 @@ export class Session {
     // A status saved by an older version can disagree with what it rests on (a lead reset once left 'asking' with no asks).
     if (meta.status === 'asking' && !meta.pendingAsks) meta.status = meta.unread ? 'waiting' : 'idle'
     if (meta.status === 'waiting' && !meta.unread) meta.status = 'idle'
+    // Sessions from before Codinger kept writers learn them once from their transcript.
+    if (!meta.writers && !meta.archived && meta.kind === 'worker') {
+      for (const e of readEvents(meta.id)) if (e.t === 'user') this.wrote(e.parts, e.by, e.ts)
+      meta.writers ??= {}
+    }
+  }
+
+  // Each person who wrote a part of a message, or sent it, wrote in this session at ts.
+  private wrote(parts: Part[], by: Person | undefined, ts: number) {
+    for (const p of [...parts.map((x) => x.by), by]) {
+      if (!p) continue
+      const w = (this.meta.writers ??= {})
+      w[p.login] = { name: p.name, last: Math.max(ts, w[p.login]?.last ?? 0), ...(p.guest ? { guest: true } : {}) }
+    }
   }
 
   // Claude Code runs background work (shells, agents) that starts a turn when it ends.
@@ -359,6 +373,7 @@ export class Session {
     this.meta.pendingCritical = 0
     this.meta.pendingReviews = 0
     this.meta.error = null
+    this.wrote(parts, by, Date.now())
     this.record('user', { parts, uuid, csid: this.meta.claudeSessionId, ...(from ? { from } : {}), ...(by ? { by } : {}), ...(tasks?.length ? { tasks } : {}) })
     this.refresh()
   }

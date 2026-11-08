@@ -196,8 +196,8 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
                 <input type="checkbox" checked={!!st.settings.selfRestart} onChange={(e) => void api('/api/settings', 'PUT', { selfRestart: e.target.checked })} />
                 Offer to restart when workwith's code changes
               </label>
-              <label className="settings-check" title="After a crash, a reboot of the machine or a forced stop of the server. When off, the session shows that its turn was cut short. A restart from workwith keeps a working session working anyway.">
-                <input type="checkbox" checked={st.settings.resumeCut !== false} onChange={(e) => void api('/api/settings', 'PUT', { resumeCut: e.target.checked })} />
+              <label className="settings-check" title="After a crash or a forced stop of the server. A restart from workwith keeps a working session working anyway.">
+                <input type="checkbox" checked={!!st.settings.resumeCut} onChange={(e) => void api('/api/settings', 'PUT', { resumeCut: e.target.checked })} />
                 Go on with turns that a server stop cut short
               </label>
             </div>
