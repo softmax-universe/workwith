@@ -17,9 +17,9 @@ import { holdKeyboard, marked, renderInline, renderText, served } from '../util.
 import { anchorFromRange, mediaIn, passageQuote, rangesFor, setHighlights } from '../anchoring.ts'
 import { render as renderLive } from '../mdlive.ts'
 import { Who } from './Who.tsx'
-import { addDraft, api, changed, LOCAL, localId, machineOf, dismissItem, draftsOf, markDone, othersLive, removeDraft, reviveItem, setDoneText, state, uid, undismissItem, updateDraft, useStore, type AnswerDraft, type DoneDraft, type NoteDraft } from '../store.ts'
+import { addDraft, api, changed, LOCAL, localId, machineOf, dismissItem, draftsOf, markDone, othersLive, removeDraft, reviveItem, sendSession, setDoneText, state, uid, undismissItem, updateDraft, useStore, type AnswerDraft, type DoneDraft, type NoteDraft } from '../store.ts'
 import type { TrackedItem } from '../items.ts'
-import { focusField, RichInput, Thumbs } from './Inputs.tsx'
+import { focusField, RichInput, sendKey, Thumbs } from './Inputs.tsx'
 import { CheckIcon, ChevronIcon, CommentIcon, PlusIcon, TerminalIcon, UndoIcon, XIcon } from './Icons.tsx'
 import { EmojiPicker } from './EmojiPicker.tsx'
 import { openFile } from './FileBrowser.tsx'
@@ -734,7 +734,8 @@ function DoneProblem({ sid, itemKey }: { sid: string; itemKey: string }) {
   return (
     <div className="done-problem">
       <button className="done-mark pop-in" title="Undo" onClick={() => undismissItem(sid, itemKey)}><CheckIcon size={12} /> Done</button>
-      <input placeholder="Any problem?" value={d.text} onChange={(e) => setDoneText(sid, itemKey, e.target.value)} />
+      <input placeholder="Any problem?" value={d.text} onChange={(e) => setDoneText(sid, itemKey, e.target.value)}
+        onKeyDown={(e) => { if (sendKey(e)) { e.preventDefault(); sendSession(sid) } }} />
     </div>
   )
 }
@@ -835,7 +836,7 @@ function DraftCard({ c, ask, compact, block }: { c: Ctx; ask: Ask & { draft: str
       {/* An edit ends an approval: the edits are what goes back. */}
       <OthersAnswers sid={c.sid} askKey={askKey} />
       <div className="draft-field">
-        <RichInput value={text} onChange={(t) => patch({ text: t, approved: false })} images={[]} onImages={() => {}} placeholder="Draft" minRows={2} />
+        <RichInput value={text} onChange={(t) => patch({ text: t, approved: false })} images={[]} onImages={() => {}} placeholder="Draft" minRows={2} onSubmit={() => sendSession(c.sid)} enterSends={false} />
         {edited && peek && <Original text={ask.draft} />}
       </div>
       <div className="draft-actions">
@@ -973,6 +974,7 @@ function QuestionCard({ c, ask, compact, block }: { c: Ctx; ask: Ask; compact?: 
         onImages={(images) => patch({ images })}
         placeholder="Answer"
         minRows={1}
+        onSubmit={() => sendSession(c.sid)}
       />
     </div>
   )

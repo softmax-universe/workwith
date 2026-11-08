@@ -1,14 +1,15 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { Anchor, Block, Event, ImageRef, Part, Task } from '../../../shared/types.ts'
 import { addDraft, agentName, api, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
 import { mediaKind } from '../../../shared/media.ts'
 import { anchorFromRange, passageQuote, setHighlights } from '../anchoring.ts'
-import { holdKeyboard, renderInline, renderMd, renderText } from '../util.ts'
+import { clockTime, fullTime, holdKeyboard, renderInline, renderMd, renderText } from '../util.ts'
 import { AssistantMessage, type Reaction } from './AssistantMessage.tsx'
 import { focusField, RichInput, Thumbs } from './Inputs.tsx'
 import { foldItems, revealItem, trackItems, type TrackedItem } from '../items.ts'
 import { itemsOf } from '../../../shared/blocks.ts'
+import { gapText, lastSaid } from '../../../shared/gap.ts'
 import { isReaction } from '../emoji.ts'
 import { ARTIFACT_QUOTE_WORDS, splitQuote } from '../../../shared/asks.ts'
 import { highlight, langOfPath } from '../highlight.ts'
@@ -79,6 +80,12 @@ export function Transcript({ sid }: { sid: string }) {
   const drafted = draftsOf(sid).flatMap((d) => d.kind === 'note' ? [d.anchor.msg] : []).sort().join(' ')
   const steps = useMemo(() => st.showSteps ? new Set<string>() : interim(events ?? [], base, new Set(drafted.split(' '))), [events, base, drafted, st.showSteps])
   const groups = useMemo(() => group(events ?? [], base, steps), [events, base, steps])
+  // "3 hours later" above a message sent after a long quiet (shared/gap.ts).
+  const gaps = useMemo(() => new Map((events ?? []).flatMap((e, i) => {
+    const last = e.t === 'user' ? lastSaid(events!, i) : null
+    const t = last == null ? null : gapText(e.ts - last)
+    return t ? [[e.seq, t] as const] : []
+  })), [events])
   const scroller = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const column = useRef<HTMLDivElement>(null)
@@ -324,7 +331,10 @@ export function Transcript({ sid }: { sid: string }) {
       <div className={`transcript-inner${gutter ? ' gutter' : ''}`} ref={inner}>
         <div className="column" ref={column}>
           {groups.map((g, i) => g.kind === 'one'
-            ? <ItemView key={g.item.key} sid={sid} item={g.item} f={folded} />
+            ? <Fragment key={g.item.key}>
+                {gaps.has(g.item.e.seq) && <div className="time-gap" title={new Date(g.item.e.ts).toLocaleString()}>{gaps.get(g.item.e.seq)}</div>}
+                <ItemView sid={sid} item={g.item} f={folded} />
+              </Fragment>
             : <Activity key={g.items[0].key} sid={sid} items={g.items} f={folded} live={i === groups.length - 1 && meta?.status === 'working'} />)}
           {streaming && <AssistantMessage sid={sid} msg="live" text={streaming} live />}
           {meta?.status === 'working' && !streaming && <WorkingDots />}
@@ -471,7 +481,7 @@ function group(events: Event[], f: Folded, steps: Set<string>): Group[] {
 
 function ItemView({ sid, item, f }: { sid: string; item: Item; f: Folded }) {
   const { e, block } = item
-  if (block && e.t === 'assistant') return <BlockView sid={sid} b={block} msg={item.key} f={f} synthetic={e.synthetic} />
+  if (block && e.t === 'assistant') return <BlockView sid={sid} b={block} msg={item.key} f={f} synthetic={e.synthetic} ts={e.ts} />
   switch (e.t) {
     case 'user': return <UserTurn sid={sid} e={e} />
     case 'permission': return <PermissionCard sid={sid} e={e} resolution={f.resolved.get(e.requestId)} />
@@ -588,10 +598,14 @@ function TaskFoot({ note, onOpen }: { note?: string; onOpen?(): void }) {
   )
 }
 
-function BlockView({ sid, b, msg, f, synthetic }: { sid: string; b: Block; msg: string; f: Folded; synthetic?: boolean }) {
+function BlockView({ sid, b, msg, f, synthetic, ts }: { sid: string; b: Block; msg: string; f: Folded; synthetic?: boolean; ts?: number }) {
   if (b.type === 'text') {
     if (synthetic) return <div className="notice info md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} />
-    return <AssistantMessage sid={sid} msg={msg} text={b.text} items={f.items} sent={f.sent.get(msg) ?? []} reacts={f.reacts.get(msg)} />
+    // The time sits under the text, out of it, so it takes no part in comments on the text.
+    return <>
+      <AssistantMessage sid={sid} msg={msg} text={b.text} items={f.items} sent={f.sent.get(msg) ?? []} reacts={f.reacts.get(msg)} />
+      {ts != null && <MsgTime ts={ts} className="agent" />}
+    </>
   }
   if (b.type === 'thinking') return <details className="thinking" open><summary>Thinking</summary><div className="md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} /></details>
   const perm = f.permOf.get(b.id)
@@ -653,6 +667,11 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
         : live && <div className="activity-items"><ItemView sid={sid} item={last} f={f} /></div>}
     </div>
   )
+}
+
+// When a message was sent, small and grey: on hover, or always on a touch screen for your messages (styles.css).
+function MsgTime({ ts, className }: { ts: number; className?: string }) {
+  return <time className={`msg-time${className ? ` ${className}` : ''}`} dateTime={new Date(ts).toISOString()} title={fullTime(ts)}>{clockTime(ts)}</time>
 }
 
 function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> }) {
@@ -728,12 +747,15 @@ function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> })
       </div></div>
       {long && <button className="link user-more" onClick={() => setMore(!more)}>{more ? 'Show less' : 'Show more'}</button>}
     </div>
-      {!state.share && <div className="user-actions">
-        <button className="icon-btn" title="Edit" disabled={busy} onClick={() => setEditing(true)}><PencilIcon size={13} /></button>
-        {confirm
-          ? <button className="link danger" disabled={busy} onClick={() => run(() => rewind(sid, e.seq))}>Delete from here</button>
-          : <button className="icon-btn" title="Delete from here" disabled={busy} onClick={() => setConfirm(true)}><TrashIcon size={13} /></button>}
-      </div>}
+      <div className="user-actions">
+        <MsgTime ts={e.ts} />
+        {!state.share && <>
+          <button className="icon-btn" title="Edit" disabled={busy} onClick={() => setEditing(true)}><PencilIcon size={13} /></button>
+          {confirm
+            ? <button className="link danger" disabled={busy} onClick={() => run(() => rewind(sid, e.seq))}>Delete from here</button>
+            : <button className="icon-btn" title="Delete from here" disabled={busy} onClick={() => setConfirm(true)}><TrashIcon size={13} /></button>}
+        </>}
+      </div>
     </div>
   )
 }

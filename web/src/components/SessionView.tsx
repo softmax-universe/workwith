@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Held as HeldReplies, Mail, Part, PermissionMode, SessionMeta, SlashCommand } from '../../../shared/types.ts'
 import { MAX_RUN } from '../../../shared/mail.ts'
-import { agentName, api, archiveAsksOf, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
+import { agentName, api, archiveAsksOf, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, senders, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
 import { fatigue, kTokens } from '../util.ts'
 import { Mascot, STATUS_LABEL } from './Mascot.tsx'
 import { dragToGroup } from './Sidebar.tsx'
@@ -591,6 +591,14 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
       } else await sendQueued(m.id, open.map((i) => ({ key: i.key, label: i.label })))
     } finally { setSending(false) }
   }
+  // Cmd+Enter in a reply box (a comment, an answer) sends as this Send button does.
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    const go = () => void sendRef.current()
+    senders.set(m.id, go)
+    return () => { if (senders.get(m.id) === go) senders.delete(m.id) }
+  }, [m.id])
   return (
     <div className="composer">
       <RunningTasks sid={m.id} />

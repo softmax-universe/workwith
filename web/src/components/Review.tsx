@@ -10,7 +10,8 @@
 import { useState } from 'react'
 import type { SessionMeta } from '../../../shared/types.ts'
 import type { LineVerdict, Verdict } from '../../../shared/review.ts'
-import { changed, removeDraft, state, useStore, type LineDraft } from '../store.ts'
+import { changed, removeDraft, sendSession, state, useStore, type LineDraft } from '../store.ts'
+import { sendKey } from './Inputs.tsx'
 import { decide, decisionOf, groupsOf, resolve, reviewStatus, setDecisionText, setFileVerdict, uncommittedOf, updateLine, verdictsOf, type Group } from '../review.ts'
 import { CheckIcon, ChevronIcon, TrashIcon, XIcon } from './Icons.tsx'
 import { renderInline, renderMd } from '../util.ts'
@@ -119,7 +120,8 @@ function Decision({ sid, g, rel, ro }: { sid: string; g: Review; rel(p: string):
     {!ro && (
       <div className="rv-decide">
         <textarea className="rv-text" rows={2} placeholder={v.verdict === 'reject' ? 'What is wrong (optional)' : 'A note for the agent (optional)'} value={d?.text ?? ''}
-          onChange={(e) => setDecisionText(sid, g.key, g.label, e.target.value)} onClick={(e) => e.stopPropagation()} />
+          onChange={(e) => setDecisionText(sid, g.key, g.label, e.target.value)} onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (sendKey(e)) { e.preventDefault(); sendSession(sid) } }} />
         <VerdictButtons value={v.verdict} sent={v.sent} onSet={(x) => decide(sid, g, rel, x)} label big dim={reviewStatus(sid, g).mixed} />
       </div>
     )}
@@ -223,7 +225,7 @@ export function LineCard({ sid, d, focus }: { sid: string; d: LineDraft; focus: 
       </div>
       <textarea className="rv-text" rows={2} placeholder="Comment" value={d.text} autoFocus={focus}
         onChange={(e) => updateLine(sid, d.id, { text: e.target.value })}
-        onKeyDown={(e) => { if (e.key === 'Escape' && !d.text.trim()) removeDraft(sid, d.id) }} />
+        onKeyDown={(e) => { if (sendKey(e)) { e.preventDefault(); sendSession(sid) } else if (e.key === 'Escape' && !d.text.trim()) removeDraft(sid, d.id) }} />
     </div>
   )
 }

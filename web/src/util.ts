@@ -133,6 +133,17 @@ export const kTokens = (n: number) => n >= 1_000_000 ? `${+(n / 1_000_000).toFix
 // so tiredness is measured against at most 400k tokens.
 export const fatigue = (used: number, window: number) => Math.min(1, used / Math.min(window || 200_000, 400_000))
 
+// When a message was sent: the time today, else the day too, and the year when it was another year.
+export function clockTime(ts: number): string {
+  const d = new Date(ts), now = new Date()
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (d.toDateString() === now.toDateString()) return time
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
+  return `${day}, ${time}`
+}
+// The same in full, for its tooltip.
+export const fullTime = (ts: number) => new Date(ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
+
 export function timeAgo(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000)
   if (s < 60) return 'just now'

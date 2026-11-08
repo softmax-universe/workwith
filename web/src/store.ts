@@ -80,6 +80,7 @@ type State = {
   lightbox: string | null     // an image shown full size
   showSteps: boolean          // keep Claude's in-between messages out of the activity rows
   commentButton: boolean      // selecting text offers a Comment button instead of opening one (Transcript)
+  enterSends: boolean         // Enter sends and Shift+Enter is a line break; else Cmd+Enter sends (Inputs.tsx sendKey)
   touchPick: boolean          // on a touch screen with the keyboard up, a held finger picks message text (Transcript.tsx)
   money: 'usd' | 'pct' | 'week'   // costs in dollars, or as a share of the 5-hour or weekly limit (web/src/cache.ts)
   runs: Record<string, Run>
@@ -148,6 +149,7 @@ export const state = {
   showSteps: saved('codinger.showSteps', false),
   touchPick: saved('codinger.touchPick', true),
   commentButton: saved('codinger.commentButtonV2', true),
+  enterSends: saved('codinger.enterSends', false),
   // 'both' was a choice until October 2026.
   money: (['usd', 'pct', 'week'] as const).find((x) => x === saved('codinger.money', 'pct')) ?? 'pct',
   runs: {},
@@ -302,6 +304,7 @@ export function changed() {
     localStorage.setItem('codinger.showSteps', JSON.stringify(state.showSteps))
     localStorage.setItem('codinger.touchPick', JSON.stringify(state.touchPick))
     localStorage.setItem('codinger.commentButtonV2', JSON.stringify(state.commentButton))
+    localStorage.setItem('codinger.enterSends', JSON.stringify(state.enterSends))
     localStorage.setItem(mine('codinger.preview'), JSON.stringify(state.preview))
     localStorage.setItem('codinger.sideTab', JSON.stringify(state.sideTab))
     localStorage.setItem('codinger.collapsed', JSON.stringify(state.collapsed))
@@ -809,6 +812,11 @@ export async function sendQueued(sid: string, alsoDismiss: { key: string; label:
   state.composer[sid] = { text: '', images: [] }
   changed()
 }
+
+// What the Send button of each open session's message box does (SessionView Composer), so a
+// reply box elsewhere can send with Cmd+Enter: with the same checks for open and critical items.
+export const senders = new Map<string, () => void>()
+export const sendSession = (sid: string) => senders.get(sid)?.()
 
 // The agent's name where the UI would say "Claude".
 export const agentName = () => state.agent?.name ?? 'Claude'

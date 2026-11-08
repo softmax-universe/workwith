@@ -747,6 +747,11 @@ button.done-mark:hover { background: color-mix(in srgb, var(--ok) 12%, transpare
 .user-wrap > .user-turn { margin: 0; max-width: 100%; }
 .user-actions { display: flex; gap: 2px; align-items: center; height: 22px; margin-top: 2px; opacity: 0; transition: opacity .1s; }
 .user-wrap:hover .user-actions, .user-actions:focus-within { opacity: 1; }
+.msg-time { color: var(--muted); font-size: calc(11px * var(--fs, 1)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.user-actions .msg-time { margin-right: 4px; }
+.msg-time.agent { display: block; height: 0; position: relative; top: -6px; opacity: 0; transition: opacity .1s; pointer-events: none; }
+.assistant-text:hover + .msg-time.agent { opacity: 1; }
+@media (hover: none) { .user-actions { opacity: 1; } .user-actions > :not(.msg-time) { display: none; } }
 .user-actions .link.danger { color: var(--bad); font-size: calc(12.5px * var(--fs, 1)); }
 .user-turn.editing { width: 88%; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
@@ -819,6 +824,8 @@ button.done-mark:hover { background: color-mix(in srgb, var(--ok) 12%, transpare
 .notice details > summary { justify-content: center; } .notice details pre { text-align: left; }
 .notice.warn { color: var(--hot); } .notice.error { color: var(--bad); text-align: left; background: rgba(229, 83, 75, .08); padding: 8px 10px; border-radius: 8px; }
 .notice.md { text-align: left; }
+.time-gap { display: flex; align-items: center; gap: 10px; margin: 22px 0 -4px; color: var(--muted); font-size: calc(11.5px * var(--fs, 1)); }
+.time-gap::before, .time-gap::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .turn-end { height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); margin: 14px 40px; }
 .working-dots { display: flex; gap: 4px; padding: 10px 2px; margin-top: 22px; }
 /* WorkingDots (Transcript.tsx) makes them hop. */
