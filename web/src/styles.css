@@ -747,6 +747,11 @@ button.done-mark:hover { background: color-mix(in srgb, var(--ok) 12%, transpare
 .user-wrap > .user-turn { margin: 0; max-width: 100%; }
 .user-actions { display: flex; gap: 2px; align-items: center; height: 22px; margin-top: 2px; opacity: 0; transition: opacity .1s; }
 .user-wrap:hover .user-actions, .user-actions:focus-within { opacity: 1; }
+.msg-time { color: var(--muted); font-size: calc(11px * var(--fs, 1)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.user-actions .msg-time { margin-right: 4px; }
+.msg-time.agent { display: block; height: 0; position: relative; top: -6px; opacity: 0; transition: opacity .1s; pointer-events: none; }
+.assistant-text:hover + .msg-time.agent { opacity: 1; }
+@media (hover: none) { .user-actions { opacity: 1; } .user-actions > :not(.msg-time) { display: none; } }
 .user-actions .link.danger { color: var(--bad); font-size: calc(12.5px * var(--fs, 1)); }
 .user-turn.editing { width: 88%; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
