@@ -45,6 +45,7 @@ import { backfillSubagentSpend } from './subspend.ts'
 import { ESTIMATE_TOOLS, backfillActive, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
 import { answered, askTools, asksReply, cancelAsk, forgetAsks, startAsks } from './asks.ts'
 import { forgetIcon, setIcon } from './icons.ts'
+import { fileIssue, startLoop } from './loop.ts'
 import { MAIL_TOOLS, flushMail, mailTools, release, startMail, stepped, takeMail, turnEnded, userWrote } from './mail.ts'
 import { AUTOPILOT_MODES, amount, nudge, startAutopilot, usedOf, verdict } from './autopilot.ts'
 import { blame, initFileHistory, moveHistory, noteEdit, record as recordVersion, versions } from './filehistory.ts'
@@ -300,7 +301,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         '--mcp-config', JSON.stringify({ mcpServers: { codinger: { type: 'http', url: `http://127.0.0.1:${PORT}/mcp/${MCP_TOKEN}/look/${meta.id}` } } }),
         // Started with your MCP servers off: only Codinger's, until one is turned on (server/mcpservers.ts).
         ...(meta.mcp ? ['--strict-mcp-config'] : []),
-        '--allowedTools', `mcp__codinger__set_look,mcp__codinger__set_title,mcp__codinger__claim_changes,mcp__codinger__start_task,mcp__codinger__stop_task,mcp__codinger__list_tasks,mcp__codinger__show_artifact,mcp__codinger__show_file,${MAIL_TOOLS.map((t) => `mcp__codinger__${t}`).join(',')}${settings.estimates !== false ? ESTIMATE_TOOLS.map((t) => `,mcp__codinger__${t}`).join('') : ''}${meta.mcp && settings.mcpClaude !== false ? ',mcp__codinger__use_mcp_server' : ''}`,
+        '--allowedTools', `mcp__codinger__set_look,mcp__codinger__set_title,mcp__codinger__claim_changes,mcp__codinger__start_task,mcp__codinger__stop_task,mcp__codinger__list_tasks,mcp__codinger__show_artifact,mcp__codinger__show_file,mcp__codinger__file_issue,${MAIL_TOOLS.map((t) => `mcp__codinger__${t}`).join(',')}${settings.estimates !== false ? ESTIMATE_TOOLS.map((t) => `,mcp__codinger__${t}`).join('') : ''}${meta.mcp && settings.mcpClaude !== false ? ',mcp__codinger__use_mcp_server' : ''}`,
         // Agents ask with <ask> cards. The permission card cannot send answers to this tool, so an Allow would give the agent no answer.
         '--disallowedTools', NO_SHELL ? 'AskUserQuestion,Bash,mcp__codinger__start_task' : 'AskUserQuestion',
         // Artifacts live in one folder for every session (server/artifacts.ts).
@@ -396,6 +397,26 @@ startAsks({
 // Autopilot goes on in sessions the last server left between turns (a handed-on busy one
 // gets there when its turn ends).
 setTimeout(() => { for (const s of sessions.values()) autopilotTurn(s, false, true) }, 3000)
+// The improvement loop (server/loop.ts): its workers are sessions on autopilot.
+startLoop({
+  settings: () => settings,
+  desk: agentInfo()?.name ?? os.hostname().replace(/\.local$/, ''),
+  start: (o) => {
+    const s = createSession({ cwd: o.cwd, title: o.title, permissionMode: 'auto' })
+    const ap = s.meta.autopilot = startAutopilot(s.meta, { goal: o.goal, unit: 'usd', budget: o.usd }, usage)
+    s.send([{ kind: 'text', text: o.prompt }], { from: 'codinger', hidden: nudge(ap).hidden })
+    ap.turns++
+    metaChanged()
+    return s.meta.id
+  },
+  ended: (id) => {
+    const s = sessions.get(id)
+    if (!s) return 'the session is gone'
+    if (busy(s)) return null
+    return s.meta.autopilot?.ended?.reason ?? (s.meta.autopilot ? null : 'it has no autopilot')
+  },
+  archive: (id) => { const s = sessions.get(id); if (s && !busy(s)) { s.meta.archived = true; metaChanged() } },
+})
 
 function get(id: string): Session {
   const s = sessions.get(id)
@@ -876,6 +897,16 @@ function spendTool(id: string): Tool {
 
 // ---- files an agent shows the user (shared/media.ts) ----
 
+// File an issue for the improvement loop (server/loop.ts).
+function issueTool(id: string): Tool {
+  return {
+    name: 'file_issue',
+    description: "File an issue about this app (workwith, the UI you run in) for its improvement loop: a bug, a rough edge, or a feature that would help you or the user. The loop builds tiny ones and ships them to main by itself, and prototypes larger ones. Say what is wrong or wanted, where, and how to see it. Keep personal data out: no names of real people, emails, home paths or session text that is not needed.",
+    inputSchema: { type: 'object', required: ['title', 'body'], properties: { title: { type: 'string' }, body: { type: 'string', description: 'Markdown' } } },
+    run: async (args) => `Filed: ${await fileIssue({ title: String(args?.title ?? ''), body: String(args?.body ?? ''), by: null, agent: { session: id } })}`,
+  }
+}
+
 function fileTool(id: string): Tool {
   return {
     name: 'show_file',
@@ -1263,6 +1294,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     writeAgentsMd(body.text)
     recordVersion(AGENTS_FILE, { kind: 'settings' })
     return send(res, 200, { path: AGENTS_FILE, text: body.text })
+  }
+  if (a === 'issues' && method === 'POST' && !id) {
+    const body = await json(req)
+    try { return send(res, 200, { url: await fileIssue({ title: String(body.title ?? ''), body: String(body.body ?? ''), by: personOf(req) }) }) } catch (e) { throw new HttpError(400, (e as Error).message) }
   }
   if (a === 'settings' && method === 'PUT') {
     const body = await json(req)
@@ -1867,7 +1902,7 @@ const server = http.createServer(async (req, res) => {
       return await handleMcp(req, res, lead ? [...tools, lookTool(lead.meta.id)] : tools)
     }
     const look = url.pathname.startsWith(`/mcp/${MCP_TOKEN}/look/`) && url.pathname.split('/').pop()
-    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look)])
+    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look), ...(settings.issues?.repo ? [issueTool(look)] : [])])
     // The web UI asks this first; here it is a machine's own page.
     if (url.pathname === '/_remote/whoami') return send(res, 200, { web: false })
     if (url.pathname.startsWith('/api/remote/m/') || url.pathname.startsWith('/api/remote/machines') || /^\/api\/remote\/push\/(key|subscribe|unsubscribe)$/.test(url.pathname)) return await remoteProxy(req, res, url)

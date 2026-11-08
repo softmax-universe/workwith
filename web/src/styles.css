@@ -1803,3 +1803,8 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .dir-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: -2px; line-height: 1; }
 .dir-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 3px; }
 .dir-menu-path { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* The Report dialog (ReportDialog.tsx). */
+.report-modal { display: flex; flex-direction: column; gap: 10px; width: min(560px, 92vw); }
+.report-modal input, .report-modal textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.report-modal textarea { resize: vertical; min-height: 120px; }

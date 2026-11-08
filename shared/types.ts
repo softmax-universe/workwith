@@ -248,6 +248,14 @@ export type Settings = {
   // emoji, or 'none' for the critter. It also holds for the folders under it (server/projecticons.ts).
   // projectEmoji: the emoji Claude picked for a repository with no icon, by its root.
   projectIcons?: Record<string, string>; projectEmoji?: Record<string, string>
+  // The improvement loop (server/loop.ts). repo: where issues go (owner/name, best private);
+  // with it set, the Report button and the file_issue tool file there. loop: this desk works
+  // on them. owners: logins (proxy or GitHub) whose straightforward issues ship by themselves.
+  // codeRepo: the code's repo, for links. checkout: the clone that worktrees come from.
+  issues?: {
+    repo: string; loop?: boolean; owners?: string[]; codeRepo?: string; checkout?: string
+    dailyPushes?: number; issueUsd?: number; maxDiff?: number; parallel?: number
+  }
 }
 
 // What a page tells its server over the socket: the session it shows while it is in view (null: none).

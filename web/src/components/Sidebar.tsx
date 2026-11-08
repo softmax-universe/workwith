@@ -7,8 +7,9 @@ import { STATUS_LABEL } from './Mascot.tsx'
 import { iconItems, SessionFace } from './ProjectIcon.tsx'
 import { Who } from './Who.tsx'
 import { NewSession } from './NewSession.tsx'
-import { ArchiveIcon, ChevronIcon, DesktopIcon, GearIcon, GlobeIcon, LaptopIcon, SearchIcon, TerminalIcon, XIcon } from './Icons.tsx'
+import { ArchiveIcon, ChevronIcon, FlagIcon, DesktopIcon, GearIcon, GlobeIcon, LaptopIcon, SearchIcon, TerminalIcon, XIcon } from './Icons.tsx'
 import { TasksDialog } from './TasksDialog.tsx'
+import { ReportDialog } from './ReportDialog.tsx'
 import { ArtifactIcon } from './Artifacts.tsx'
 import { SettingsDialog } from './SettingsDialog.tsx'
 import { cacheOf, minutes, spendOf, useNow, usd } from '../cache.ts'
@@ -188,6 +189,7 @@ export function Sidebar({ width }: { width: number }) {
   // Settings, on its page: in the page's address (url.ts). true: the page you looked at last.
   const setSettings = (p: Page | true) => { state.settingsPage = p === true ? localStorage.getItem('codinger.settingsPage') ?? 'general' : p; changed() }
   const [tasks, setTasks] = useState(false)
+  const [report, setReport] = useState(false)
   const [menu, setMenu] = useState<MenuAt | null>(null)
   const openMenu = (e: React.MouseEvent, items: MenuItem[]) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, items }) }
   const local = st.machines[LOCAL]
@@ -293,10 +295,12 @@ export function Sidebar({ width }: { width: number }) {
           const running = st.tasks.filter((t) => !t.ended).length
           return <button className="link side-tasks" title={`Tasks: ${running} running`} onClick={() => setTasks(true)}><TerminalIcon size={14} />{running > 0 && <span>{running}</span>}</button>
         })()}
+        {st.settings.issues?.repo && <button className="link side-report" title="Report an issue with this app" onClick={() => setReport(true)} data-pid="report-button"><FlagIcon size={14} /></button>}
         {/* One toggle: pressed while the list shows archived sessions. */}
         <button className={`link archive-toggle${st.showArchived ? ' on' : ''}`} title={st.showArchived ? 'Show active sessions' : 'Show archived sessions'} onClick={() => showArchive(!st.showArchived)}><ArchiveIcon size={14} /></button>
       </div>
       </div>
+      {report && <ReportDialog onClose={() => setReport(false)} />}
       {newIn !== null && <NewSession cwd={newIn.cwd} machine={newIn.machine} group={newIn.group} onClose={() => setNewIn(null)} />}
       {history && <HistoryDialog onClose={() => setHistory(false)} />}
       {st.settingsPage && <SettingsDialog onClose={() => { state.settingsPage = null; changed() }} />}
