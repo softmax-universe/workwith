@@ -28,6 +28,7 @@ import * as usageLedger from './usage.ts'
 import { notesDir, notesNow, notesPath, readNotes, resumeKeepWarm, startNotes } from './notes.ts'
 import { notesFile } from '../shared/notes.ts'
 import { flagProblem } from '../shared/flags.ts'
+import { autoTitle } from './describe.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
@@ -241,7 +242,7 @@ const hooks: Hooks = {
     metaChanged()
     if (event.t === 'assistant') stepped(s, event.blocks.flatMap((b) => b.type === 'tool_use' ? [b.name] : []))
     if (event.t === 'assistant') for (const b of event.blocks) if (b.type === 'tool_use') toolStarted(s.meta.cwd, b.id, b.name, event.ts)
-    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s) })
+    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s); autoTitle(s, metaChanged) })
     // A tool call that finished may have changed a tracked file: record it with this message.
     if (event.t === 'tool_result') {
       const ev = s.getEvents()
@@ -410,7 +411,7 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
   const mode = MODES.includes(o.permissionMode as PermissionMode) ? o.permissionMode! : 'auto'
   const group = o.group ? String(o.group) : o.parentId ? sessions.get(o.parentId)?.meta.group : undefined
   const s = adopt(newMeta({
-    cwd, title: o.title?.trim() || path.basename(cwd), model: o.model || null, permissionMode: mode,
+    cwd, title: o.title?.trim() || path.basename(cwd), ...(o.title?.trim() ? { titled: true } : {}), model: o.model || null, permissionMode: mode,
     ...(flags.length ? { flags } : {}),
     parentId: o.parentId && sessions.has(o.parentId) ? o.parentId : null,
     // Its group: the one asked for, else its parent's.
@@ -741,6 +742,7 @@ function titleTool(id: string): Tool {
       // Over a name the user gave, keep theirs to undo to.
       if (m.titleByUser && m.titleBefore == null) m.titleBefore = m.title
       m.title = t
+      m.titled = true
       metaChanged()
       return m.titleBefore != null ? `Renamed to "${t}". The user had named it "${m.titleBefore}" and can undo this.` : `Renamed to "${t}".`
     },
@@ -1516,6 +1518,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (body.undo && s.meta.titleBefore != null) s.meta.titleUndone = s.meta.title
       s.meta.title = body.title.trim()
       s.meta.titleByUser = true
+      s.meta.titled = true
       s.meta.titleBefore = undefined
     }
     // Into another sidebar group (null: none), with the sessions it started that were in its old one.

@@ -59,6 +59,7 @@ export type SessionMeta = {
   drafting?: boolean      // you have a reply in progress here (the browser says so), so the lead's wait
   look?: Look             // what its critter wears; Claude picks it (shared/looks.ts)
   titleByUser?: boolean   // you named it at some point
+  titled?: boolean        // named by someone, not its folder's name: the agent, the dialog, or Codinger (server/describe.ts)
   // Claude renamed a session you had named: your name, to undo to; and a name of Claude's you undid.
   titleBefore?: string
   titleUndone?: string
