@@ -1793,3 +1793,8 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 @keyframes who-pulse { 50% { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 4px var(--good, #3fb950); } }
 .calm .row-person.live .who-badge, .calm .face-who.live .who-badge { animation: none; }
 .head-critter .proj-badge { min-width: 16px; height: 16px; font-size: 12px; line-height: 16px; border-radius: 4px; }
+
+/* A folder's project icon in the folder picker (ProjectIcon.tsx: DirIcon), or the folder glyph. */
+.dir-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: -2px; line-height: 1; }
+.dir-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 3px; }
+.dir-menu-path { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

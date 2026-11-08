@@ -1296,10 +1296,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   // Project icons for the sidebar (server/projecticons.ts): the URL for each folder asked of, or null
   // for the critter; the icon a repository has, for a folder a session works in; and one set by hand
   // (an image from /api/images, 'none' for the critter, or null to go back to what the repository has).
-  if (a === 'project-icons' && method === 'GET') return send(res, 200, Object.fromEntries(url.searchParams.getAll('cwd').map((cwd) => [cwd, iconOf(settings.projectIcons, settings.projectEmoji, cwd, learnEmoji)])))
+  if (a === 'project-icons' && method === 'GET') {
+    // quick=1: the folder picker's rows; a shorter walk, and never a new emoji.
+    const quick = url.searchParams.get('quick') === '1'
+    return send(res, 200, Object.fromEntries(url.searchParams.getAll('cwd').map((cwd) => [cwd, iconOf(settings.projectIcons, settings.projectEmoji, cwd, quick ? undefined : learnEmoji, quick)])))
+  }
   if (a === 'project-icon' && method === 'GET') {
     const cwd = url.searchParams.get('cwd') ?? ''
-    const file = [...sessions.values()].some((s) => s.meta.cwd === cwd) ? iconFile(settings.projectIcons, cwd) : null
+    const quick = url.searchParams.get('quick') === '1'
+    // A session's folder, or (for the folder picker, which lists any folder) any folder unless the
+    // page is open to people you don't know (CODINGER_NO_SHELL).
+    const file = (!NO_SHELL && quick) || [...sessions.values()].some((s) => s.meta.cwd === cwd) ? iconFile(settings.projectIcons, cwd, quick) : null
     if (!file) throw new HttpError(404, 'No icon')
     return sendFile(req, res, file, fs.statSync(file).size, { 'content-type': iconType(file), 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'cache-control': 'max-age=31536000, immutable' })
   }

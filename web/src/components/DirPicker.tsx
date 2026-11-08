@@ -7,6 +7,7 @@ import type { DirListing, RecentDir } from '../../../shared/types.ts'
 import { api, currentMachine, LOCAL, state, urlOf } from '../store.ts'
 import { timeAgo } from '../util.ts'
 import { FolderIcon, UpIcon } from './Icons.tsx'
+import { DirIcon } from './ProjectIcon.tsx'
 
 // Your home directory as ~, on the machine the path is on (the current one by default).
 // Windows paths do not care about case.
@@ -69,7 +70,7 @@ export function DirPicker({ value, onChange, onPick, autoFocus, machine = curren
           <div className="dir-menu-head">{filter ? 'Matching recent directories' : 'Recent directories'}</div>
           {shown.map((d, i) => (
             <button type="button" key={d.path} className={i === index ? 'on' : ''} onMouseEnter={() => setIndex(i)} onClick={() => choose(d.path)}>
-              <span className="mono">{shortPath(d.path, machine)}</span>
+              <span className="dir-menu-path"><DirIcon path={d.path} machine={machine} /><span className="mono">{shortPath(d.path, machine)}</span></span>
               <span className="muted">{d.source === 'claude' ? 'Claude Code' : d.source === 'both' ? 'workwith · Claude Code' : 'workwith'} · {timeAgo(d.ts)}</span>
             </button>
           ))}
@@ -121,7 +122,7 @@ function DirBrowser({ start, onChoose, machine }: { start: string; onChoose(p: s
       </div>
       <div className="dir-list">
         {listing.parent && <button type="button" onClick={() => void go(listing.parent!)}><UpIcon size={13} /> ..</button>}
-        {listing.dirs.map((d) => <button type="button" key={d} onClick={() => void go(join(d))} onDoubleClick={() => onChoose(join(d))}><FolderIcon size={13} /> {d}</button>)}
+        {listing.dirs.map((d) => <button type="button" key={d} onClick={() => void go(join(d))} onDoubleClick={() => onChoose(join(d))}><DirIcon path={join(d)} machine={machine} /> {d}</button>)}
         {!listing.dirs.length && <div className="muted pad">No subfolders</div>}
       </div>
       {newName !== null && (

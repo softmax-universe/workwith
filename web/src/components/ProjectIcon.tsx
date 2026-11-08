@@ -3,13 +3,15 @@
 // and wears the critter's badge when the session waits on you, finished unseen, or failed; a starred
 // one glows. With no icon (none yet, or 'none' set by hand) it is the critter.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SessionMeta } from '../../../shared/types.ts'
 import { api, changed, machineOf, media, state, useStore } from '../store.ts'
 import { fatigue, uploadImage } from '../util.ts'
 import { BADGES, Mascot } from './Mascot.tsx'
+import { FolderIcon } from './Icons.tsx'
 
-// Each folder's icon URL (null: none), by machine and folder; asked of the server in one batch.
+// Each folder's icon URL (null: none), by machine, folder and quick; asked of the server in batches.
+// quick: the folder picker's rows (a shorter walk on the server, and never a new emoji).
 type Icon = { url: string } | { emoji: string } | null
 const known = new Map<string, Icon>()
 let wanted = new Set<string>()
@@ -17,23 +19,29 @@ let timer: ReturnType<typeof setTimeout> | undefined
 // The icons set by hand that the answers in known came from, by machine.
 const setFor = new Map<string, string>()
 
-function ask(machine: string, cwd: string) {
-  wanted.add(JSON.stringify([machine, cwd]))
+function ask(machine: string, cwd: string, quick: boolean) {
+  wanted.add(JSON.stringify([machine, cwd, quick]))
   timer ??= setTimeout(() => {
-    const asks = [...wanted].map((k) => JSON.parse(k) as [string, string])
+    const asks = [...wanted].map((k) => JSON.parse(k) as [string, string, boolean])
     wanted = new Set()
     timer = undefined
     const by = new Map<string, string[]>()
-    for (const [m, c] of asks) by.set(m, [...(by.get(m) ?? []), c])
-    for (const [m, cwds] of by) {
-      void api<Record<string, Icon>>(`/api/project-icons?${cwds.map((c) => `cwd=${encodeURIComponent(c)}`).join('&')}`, 'GET', undefined, m)
-        .then((r) => { for (const c of cwds) known.set(JSON.stringify([m, c]), r[c] ?? null); changed() })
-        .catch(() => { for (const c of cwds) known.set(JSON.stringify([m, c]), null) })
+    for (const [m, c, q] of asks) { const k = JSON.stringify([m, q]); by.set(k, [...(by.get(k) ?? []), c]) }
+    for (const [k, all] of by) {
+      const [m, q] = JSON.parse(k) as [string, boolean]
+      // 40 folders an ask, so its address stays short.
+      for (let i = 0; i < all.length; i += 40) {
+        const cwds = all.slice(i, i + 40)
+        void api<Record<string, Icon>>(`/api/project-icons?${q ? 'quick=1&' : ''}${cwds.map((c) => `cwd=${encodeURIComponent(c)}`).join('&')}`, 'GET', undefined, m)
+          .then((r) => { for (const c of cwds) known.set(JSON.stringify([m, c, q]), r[c] ?? null); changed() })
+          .catch(() => { for (const c of cwds) known.set(JSON.stringify([m, c, q]), null) })
+      }
     }
   }, 30)
 }
 
-export function useProjectIcon(cwd: string, machine: string): Icon {
+// on: false until the icon is wanted (a row scrolled into view), so nothing is asked before.
+export function useProjectIcon(cwd: string, machine: string, quick = false, on = true): Icon {
   const st = useStore()
   // Icons set by hand, or emoji Claude picked, changed: ask again for every folder.
   const ms = st.machines[machine]?.settings
@@ -42,10 +50,33 @@ export function useProjectIcon(cwd: string, machine: string): Icon {
     setFor.set(machine, set)
     for (const k of known.keys()) if ((JSON.parse(k) as string[])[0] === machine) known.delete(k)
   }
-  const key = JSON.stringify([machine, cwd])
+  const key = JSON.stringify([machine, cwd, quick])
   const url = known.get(key)
-  useEffect(() => { if (url === undefined) ask(machine, cwd) }, [key, url])
+  useEffect(() => { if (on && cwd && url === undefined) ask(machine, cwd, quick) }, [key, url, on])
   return url && 'url' in url ? { url: media(url.url, machine) } : url ?? null
+}
+
+// A folder's icon in the folder picker: its project's icon or emoji when one is known, else the
+// folder glyph. Asked for only once its row is in view.
+export function DirIcon({ path, machine, size = 14 }: { path: string; machine: string; size?: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [seen, setSeen] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || seen) return
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect() } })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [seen])
+  const icon = useProjectIcon(path, machine, true, seen)
+  const [broken, setBroken] = useState(false)
+  return (
+    <span ref={ref} className="dir-icon" style={{ width: size, height: size }}>
+      {icon && 'url' in icon && !broken ? <img src={icon.url} alt="" draggable={false} onError={() => setBroken(true)} />
+        : icon && 'emoji' in icon ? <span style={{ fontSize: size * 0.9 }}>{icon.emoji}</span>
+        : <FolderIcon size={size - 1} />}
+    </span>
+  )
 }
 
 type Props = { s: SessionMeta; size: number; title?: string }

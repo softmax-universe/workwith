@@ -7,7 +7,7 @@ import path from 'node:path'
 const top = fs.mkdtempSync(path.join(os.tmpdir(), 'projecticons-'))
 // The emoji call loads the server's store, which must not take a live desk's data folder.
 process.env.CODINGER_HOME = path.join(top, '.data')
-const { iconFile } = await import('./projecticons.ts')
+const { iconFile, iconOf } = await import('./projecticons.ts')
 // A PNG of the given width (its header only, and enough bytes to count as an image).
 const png = (w: number) => {
   const b = Buffer.alloc(200)
@@ -102,4 +102,16 @@ test('a monorepo: each package its own icon, and not a sibling package\'s', () =
   const e = repo('mono-logo', { 'logo.svg': svg, 'apps/web/package.json': '{}', 'apps/web/public/favicon.svg': svg, 'apps/tools/src/index.ts': '' })
   assert.equal(found(e, path.join(e, 'apps/tools/src')), 'logo.svg')
   assert.equal(found(e, path.join(e, 'apps/web')), 'apps/web/public/favicon.svg')
+})
+
+test('the folder picker (quick): a shorter walk, an emoji only if one is known, and never a new one', () => {
+  const d = repo('quick', { 'public/favicon.svg': svg, 'deep/a/b/c/d/logo.svg': svg })
+  const e = repo('quick-empty', { 'README.md': '# Quick' })
+  assert.match((iconOf(undefined, undefined, d, undefined, true) as { url: string }).url, /quick=1/)
+  assert.deepEqual(iconOf(undefined, { [e]: '🍞' }, e, undefined, true), { emoji: '🍞' })
+  // No learn: nothing to save an emoji to, so none is asked for.
+  assert.equal(iconOf(undefined, undefined, e, undefined, true), null)
+  const f = repo('quick-deep', { 'a/b/c/d/logo.svg': svg })
+  assert.equal(iconFile(undefined, f, true), null)
+  assert.equal(found(f), 'a/b/c/d/logo.svg')
 })

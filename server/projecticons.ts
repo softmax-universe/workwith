@@ -135,12 +135,13 @@ function pointed(dir: string, files: string[]): string[] {
   return out.sort((a, b) => a.rank - b.rank).map((x) => x.f)
 }
 
-function findIn(dir: string, from?: string): string | null {
+// quick: for a long list of folders (the folder picker), a shorter walk: 3 levels, 400 entries.
+function findIn(dir: string, from?: string, quick = false): string | null {
   // A folder in no repository (a home folder) is looked at only near its top.
-  const deep = fs.existsSync(path.join(rootOf(dir), '.git')) ? 6 : 2
+  const deep = fs.existsSync(path.join(rootOf(dir), '.git')) ? quick ? 3 : 6 : 2
   const images: { file: string; many: boolean }[] = []
   const pointers: string[] = []
-  let left = 5000
+  let left = quick ? 400 : 5000
   const walk = (d: string, depth: number) => {
     let entries: fs.Dirent[]
     try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
@@ -172,11 +173,11 @@ function findIn(dir: string, from?: string): string | null {
 
 // Kept ten minutes, so the sidebar's asks don't walk the disk each time.
 const found = new Map<string, { file: string | null; at: number }>()
-function foundIn(dir: string, from?: string): string | null {
-  const key = `${dir}\n${from ?? ''}`
+function foundIn(dir: string, from?: string, quick = false): string | null {
+  const key = `${dir}\n${from ?? ''}\n${quick ? 'q' : ''}`
   const hit = found.get(key)
   if (hit && Date.now() - hit.at < 600_000) return hit.file
-  const file = findIn(dir, from)
+  const file = findIn(dir, from, quick)
   found.set(key, { file, at: Date.now() })
   return file
 }
@@ -188,13 +189,13 @@ type Got = { set: string } | { file: string } | { emoji: string } | null
 // The nearest folder from cwd up to the repository's root with an icon set by hand or one of its
 // own, so the packages of a monorepo can each have theirs; above the root, only one set by hand.
 // Else the emoji Claude picked for the repository (projectEmoji), or none yet.
-function resolve(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string): Got {
+function resolve(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, quick = false): Got {
   const root = rootOf(cwd)
   let inside = true
   let prev = cwd
   for (let d = cwd; ; d = path.dirname(d)) {
     if (icons?.[d]) return icons[d] === 'none' ? null : { set: icons[d] }
-    if (inside) { const f = foundIn(d, d === cwd ? undefined : prev); if (f) return { file: f } }
+    if (inside) { const f = foundIn(d, d === cwd ? undefined : prev, quick); if (f) return { file: f } }
     prev = d
     if (d === root) inside = false
     if (path.dirname(d) === d) break
@@ -202,21 +203,22 @@ function resolve(icons: Record<string, string> | undefined, emoji: Record<string
   return emoji?.[root] ? { emoji: emoji[root] } : null
 }
 
-export const iconFile = (icons: Record<string, string> | undefined, cwd: string) => { const g = resolve(icons, undefined, cwd); return g && 'file' in g ? g.file : null }
+export const iconFile = (icons: Record<string, string> | undefined, cwd: string, quick = false) => { const g = resolve(icons, undefined, cwd, quick); return g && 'file' in g ? g.file : null }
 
 // What the sidebar shows for a folder. With nothing at all, Claude picks an emoji for the
 // repository once (learn saves it in Settings.projectEmoji), and the critter shows until then.
-export function iconOf(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, learn: (root: string, emoji: string) => void): ProjectIcon {
-  const g = resolve(icons, emoji, cwd)
+// With no learn (the folder picker, quick), only what is known already: no new emoji is asked for.
+export function iconOf(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, learn?: (root: string, emoji: string) => void, quick = false): ProjectIcon {
+  const g = resolve(icons, emoji, cwd, quick)
   if (!g) {
-    if (!icons?.[cwd]) void pickEmoji(rootOf(cwd), learn)
+    if (learn && !icons?.[cwd]) void pickEmoji(rootOf(cwd), learn)
     return null
   }
   if ('emoji' in g) return g
   if ('set' in g) return g.set.startsWith('/api/') ? { url: g.set } : { emoji: g.set }
   let v = 0
   try { v = Math.round(fs.statSync(g.file).mtimeMs) } catch { /* gone */ }
-  return { url: `/api/project-icon?cwd=${encodeURIComponent(cwd)}&v=${v}` }
+  return { url: `/api/project-icon?cwd=${encodeURIComponent(cwd)}${quick ? '&quick=1' : ''}&v=${v}` }
 }
 
 // Once for each repository while the server runs, even if Claude gives no emoji.
