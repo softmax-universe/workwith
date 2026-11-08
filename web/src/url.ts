@@ -41,7 +41,8 @@ function encode(): { nav: URLSearchParams; look: URLSearchParams } {
   if (state.settingsPage) nav.set('settings', state.settingsPage)
   look.set('pane', panel.tab ?? 'off')
   if (state.sideHidden) look.set('side', 'hidden')
-  if (state.sideAll) look.set('rows', 'all')
+  if (state.sideMine && state.me) look.set('rows', 'mine')
+  else if (state.sideAll) look.set('rows', 'all')
   if (state.sideTab === 'remote') look.set('tab', 'remote')
   return { nav, look }
 }
@@ -65,6 +66,7 @@ function apply(q: URLSearchParams, look: boolean) {
   if (!phone.matches && pane && s) setPanel(s, { tab: pane === 'off' ? null : (['preview', 'files', 'items'] as const).find((t) => t === pane) ?? panelOf(s).tab })
   state.sideHidden = q.get('side') === 'hidden'
   state.sideAll = q.get('rows') === 'all'
+  state.sideMine = q.get('rows') === 'mine'
   state.sideTab = q.get('tab') === 'remote' ? 'remote' : 'local'
 }
 

@@ -116,6 +116,7 @@ type State = {
   sideHidden: boolean                // on a wide screen you hid the sidebar (a click on its splitter, main.tsx)
   collapsed: string[]                // machines whose sessions you hid in the sidebar, and groups (group:<machine>:<id>)
   sideAll: boolean                   // the sidebar shows every session as a row, not only those that need you
+  sideMine: boolean                  // with people known apart: only the sessions you wrote in, as rows
   archiveQuery: string               // the archived view shows only the sessions whose folder has this text
   archiveByFolder: boolean           // the archived view puts sessions under their folders, not under your groups
   machineOrder: string[]             // other machines, in the order you dragged them to
@@ -169,6 +170,7 @@ export const state = {
   sideTab: saved('codinger.sideTab', 'local'),
   collapsed: saved('codinger.collapsed', []),
   sideAll: saved('codinger.sideAll', false),
+  sideMine: saved('codinger.sideMine', false),
   archiveQuery: '',
   archiveByFolder: saved('codinger.archiveByFolder', false),
   sideHidden: saved('codinger.sideHidden', false),
@@ -306,6 +308,7 @@ export function changed() {
     localStorage.setItem('codinger.sideTab', JSON.stringify(state.sideTab))
     localStorage.setItem('codinger.collapsed', JSON.stringify(state.collapsed))
     localStorage.setItem('codinger.sideAll', JSON.stringify(state.sideAll))
+    localStorage.setItem('codinger.sideMine', JSON.stringify(state.sideMine))
     localStorage.setItem('codinger.archiveByFolder', JSON.stringify(state.archiveByFolder))
     localStorage.setItem('codinger.sideHidden', JSON.stringify(state.sideHidden))
     localStorage.setItem('codinger.machineOrder', JSON.stringify(state.machineOrder))

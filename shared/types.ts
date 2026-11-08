@@ -83,6 +83,9 @@ export type SessionMeta = {
   resumeAt?: string | null
   held?: Held[]           // replies waiting for a joint turn (Held)
   live?: Live[]           // what each person is writing now, as they write it (Live)
+  // Who wrote in it, by login, when Codinger knows people apart (Person): their name, and when
+  // they last sent something. The sidebar shows the sessions you were in, and who else is in one now.
+  writers?: Record<string, Writer>
   autopilot?: Autopilot
   // Messages between sessions (server/mail.ts). mailFilter: who else may send to it (unset: every
   // session; set_inbox narrows it); its parent and children always may. mail: messages waiting
@@ -152,6 +155,7 @@ export type ArtifactAnchor = { artifact: string; v?: number; at?: number; pid?: 
 // (CODINGER_USER_HEADER; server/agent.ts). login: as the proxy gives it; name: to show.
 // guest: the name came from the browser (CODINGER_ASK_NAME), and nothing checked it.
 export type Person = { login: string; name: string; guest?: boolean }
+export type Writer = { name: string; last: number; guest?: boolean }
 
 // The agent this Codinger belongs to, when it runs on an agent's own host (server/agent.ts):
 // its name for "Message Ada", and whether it has a face and a theme of its own.
@@ -219,7 +223,7 @@ export type Usage = { fiveHour?: number; sevenDay?: number; resetsAt?: number; s
 // trackedFiles: files whose history Codinger keeps, besides AGENTS.md, CLAUDE.md and LEAD_NOTES.md.
 // selfRestart: offer to restart when Codinger's own code changes (for working on Codinger); off by default.
 // resumeCut: a turn the server's stop cut short (a crash, a forced stop; not a restart, which keeps it
-// running) goes on when the server starts again; on unless set to false.
+// running) goes on when the server starts again; off by default.
 // appearance: unset until you pick one, which the first load asks you to do.
 // groupOrder: the lead's folders, once you drag one. groups: the sidebar's groups you made, top first. cacheGuard: tokens; see shared/cache.ts.
 // notes, keepWarmHours, keepWarmMax, keepWarmUsage: see server/notes.ts.
@@ -237,6 +241,10 @@ export type Settings = {
   plan?: { tier: string; usd: number; yearly?: boolean }; reviewSeen?: { week?: string; month?: string }
   autoUpdate?: UpdateMode   // updates from origin/main (server/update.ts); unset: ask
   emoji?: EmojiUse          // the reaction emoji you use, to put first in the rows and the picker
+  // A folder's icon in the sidebar, set by hand: an image the server keeps (/api/images/…), an
+  // emoji, or 'none' for the critter. It also holds for the folders under it (server/projecticons.ts).
+  // projectEmoji: the emoji Claude picked for a repository with no icon, by its root.
+  projectIcons?: Record<string, string>; projectEmoji?: Record<string, string>
 }
 
 export type ServerMsg =
