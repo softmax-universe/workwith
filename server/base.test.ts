@@ -61,7 +61,7 @@ test('a server under /desk/ada answers there, behind a proxy named in CODINGER_H
   fs.writeFileSync(claude, '#!/bin/sh\necho \'{"loggedIn":true}\'\n', { mode: 0o755 })
   const port = 4900 + Math.floor(Math.random() * 90)
   const server = spawn(process.execPath, [path.join(import.meta.dirname, 'index.ts')], {
-    env: { ...outsideDesk(), HOME: home, PORT: String(port), CODINGER_CLAUDE: claude, CLAUDE_CODE_OAUTH_TOKEN: 'test-not-a-real-token', CODINGER_BASE: '/desk/ada', CODINGER_AGENT_NAME: 'Ada', CODINGER_AGENT_CWD: '/workspace/ada', CODINGER_HOSTS: 'proxy.test', CODINGER_USER_HEADER: 'x-user' },
+    env: { ...outsideDesk(), HOME: home, CODINGER_HOME: path.join(home, 'data'), PORT: String(port), CODINGER_CLAUDE: claude, CLAUDE_CODE_OAUTH_TOKEN: 'test-not-a-real-token', CODINGER_BASE: '/desk/ada', CODINGER_AGENT_NAME: 'Ada', CODINGER_AGENT_CWD: '/workspace/ada', CODINGER_HOSTS: 'proxy.test', CODINGER_USER_HEADER: 'x-user' },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true, // its own process group, so the teardown stops anything it started too
   })

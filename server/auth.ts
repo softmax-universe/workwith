@@ -43,8 +43,10 @@ export function childEnv(): NodeJS.ProcessEnv {
   delete env.CLAUDECODE
   delete env.CLAUDE_CODE_ENTRYPOINT
   // The desk's own settings stay with the desk: a dev server or a test that a session
-  // starts must not find this desk's data folder (CODINGER_HOME) and sweep its sessions.
+  // starts must not find this desk's data folder (CODINGER_HOME) and sweep its sessions,
+  // nor take its PORT.
   for (const k of Object.keys(env)) if (/^CODIN(G)?ER_/.test(k)) delete env[k]
+  delete env.PORT
   return env
 }
 
