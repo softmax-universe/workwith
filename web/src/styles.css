@@ -630,6 +630,17 @@ button.done-mark:hover { background: color-mix(in srgb, var(--ok) 12%, transpare
 .pop-in { animation: pop .3s cubic-bezier(.34, 1.8, .64, 1); }
 @media (prefers-reduced-motion: reduce) { .pop-in { animation: none; } }
 .sent-done { color: var(--ok); }
+.sent-check .sent-box { line-height: 0; } .sent-check.on { color: var(--ok); }
+/* A task list in Claude's text (checks.ts): the boxes work, and the list says how many are done. */
+.md ul.task-list { list-style: none; padding-left: .2em; }
+.md li.task-item ul.task-list { padding-left: 1.6em; }
+.md .task-list::before { content: attr(data-progress) ' done'; display: inline-block; margin-bottom: 4px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: calc(11.5px * var(--fs, 1)); font-variant-numeric: tabular-nums; }
+.md .task-list.task-all::before { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.md li.task-item > input[type=checkbox], .md li.task-item > p:first-child > input[type=checkbox] { width: 15px; height: 15px; margin: 0 .5em 0 0; vertical-align: -2px; accent-color: var(--ok); cursor: pointer; }
+.md li.task-item > input[type=checkbox]:disabled { cursor: default; }
+.md li.task-done { color: var(--muted); }
+/* Ticked or unticked, not sent yet. */
+.md li.task-changed > input[type=checkbox], .md li.task-changed > p:first-child > input[type=checkbox] { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; border-radius: 3px; }
 .reply-btn { display: inline-flex; gap: 5px; align-items: center; font-size: calc(12.5px * var(--fs, 1)); padding: 2px 9px; color: var(--muted); }
 .reply-btn:hover:not(:disabled) { color: var(--text); }
 .consider.st-answered { border-left-color: var(--ok); box-shadow: none; background: transparent; }

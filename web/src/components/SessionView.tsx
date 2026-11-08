@@ -397,7 +397,7 @@ function Batch({ h, unhold }: { h: HeldReplies; unhold?: (id: string, part?: num
         <div key={i} className={`held-part${p.kind === 'text' ? ' message' : ''}`}>
           {p.kind === 'note' && p.quote.trim() && <span className="held-quote">“{p.quote.length > 80 ? p.quote.slice(0, 80) + '…' : p.quote}”</span>}
           {p.kind === 'answer' && <span className="held-quote">{p.question.split('\n')[0]}</span>}
-          <span className="held-text">{p.kind === 'dismiss' ? `dismissed ${p.items.length}` : p.kind === 'done' ? `done: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'answer' && p.choices?.length ? `${p.choices.join('; ')} ${p.text}` : p.text}</span>
+          <span className="held-text">{p.kind === 'dismiss' ? `dismissed ${p.items.length}` : p.kind === 'done' ? `done: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'check' ? `ticks: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'answer' && p.choices?.length ? `${p.choices.join('; ')} ${p.text}` : p.text}</span>
           {unhold && h.parts.length > 1 && <button className="icon-btn" title="Take this one back" onClick={() => unhold(h.id, i)}><XIcon size={11} /></button>}
         </div>
       ))}
@@ -554,6 +554,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
   const answers = drafts.filter((d) => d.kind === 'answer').length
   const dismissed = drafts.filter((d) => d.kind === 'dismiss').length
   const done = drafts.filter((d) => d.kind === 'done').length
+  const checks = drafts.filter((d) => d.kind === 'check').length
   const [sending, setSending] = useState(false)
   const busy = m.status === 'working' || m.status === 'permission'
   // Sending while questions or items are still open warns once; sending again
@@ -597,7 +598,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
       {asks.length > 0 && <div className="inbox">{asks.map(({ to, mail }) => <ArchiveAsk key={mail.id} to={to} x={mail} />)}</div>}
       <Inbox m={m} />
       <Held m={m} />
-      {(!!m.mail?.length || notes > 0 || verdicts > 0 || reactions > 0 || answers > 0 || dismissed > 0 || done > 0 || open.length > 0) && (
+      {(!!m.mail?.length || notes > 0 || verdicts > 0 || reactions > 0 || answers > 0 || dismissed > 0 || done > 0 || checks > 0 || open.length > 0) && (
         <div className="queue">
           <Mailbox m={m} />
           {verdicts > 0 && <span className="chip static">{verdicts} {verdicts === 1 ? 'verdict' : 'verdicts'}</span>}
@@ -605,6 +606,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
           {reactions > 0 && <span className="chip static">{reactions} {reactions === 1 ? 'reaction' : 'reactions'}</span>}
           {answers > 0 && <span className="chip static">{answers} {answers === 1 ? 'answer' : 'answers'}</span>}
           {done > 0 && <span className="chip static">{done} done</span>}
+          {checks > 0 && <span className="chip static">{checks} {checks === 1 ? 'tick' : 'ticks'}</span>}
           {dismissed > 0 && <DismissedChip sid={m.id} />}
           {open.length > 0 && <button className={`chip open-chip${warned ? ' warn' : ''}`} onClick={() => revealItem(open[0].key)}>{open.length} open</button>}
         </div>

@@ -200,6 +200,15 @@ export function formatDone(items: { key: string; label: string; text?: string; r
   return `**Marked done:** ${items.map(one).join('; ')}${results}`
 }
 
+// The text Claude receives for boxes of its task lists the user ticked or unticked.
+export function formatChecks(items: { label: string; checked: boolean }[]): string {
+  const line = (checked: boolean, word: string) => {
+    const these = items.filter((i) => i.checked === checked)
+    return these.length ? [`**${word}:** ${these.map((i) => `"${i.label.slice(0, 120)}"`).join('; ')}`] : []
+  }
+  return [...line(true, 'Checked'), ...line(false, 'Unchecked')].join('\n')
+}
+
 // The text Claude receives for items the user saw and set aside.
 export function formatDismissed(items: { key: string; label: string }[]): string {
   return `**Dismissed, no reply:** ${items.map((i) => `\`${i.key.split(':').pop()}\` (${i.label.slice(0, 120)})`).join('; ')}`

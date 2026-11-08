@@ -21,6 +21,8 @@ export type AnswerDraft = { id: string; kind: 'answer'; askKey: string; question
 export type DismissDraft = { id: string; kind: 'dismiss'; key: string; label: string; createdAt: number }
 // An item you did ("<msg>:<id>"); text: a problem you hit doing it.
 export type DoneDraft = { id: string; kind: 'done'; key: string; label: string; text: string; result?: string; createdAt: number }
+// A box of a task list in Claude's text ("<msg>:t<n>") you ticked or unticked; only while it differs from what was sent.
+export type CheckDraft = { id: string; kind: 'check'; key: string; label: string; checked: boolean; createdAt: number }
 // A command opened in Terminal from a <run> block (by token), and how it ended.
 export type Run = { sid: string; card: string; command: string; item?: { key: string; label: string }; code?: number; tail?: string }
 // Your verdict on a file the agent changed in one turn (group), and a comment on lines of a file (shared/review.ts).
@@ -29,7 +31,7 @@ export type VerdictDraft = { id: string; kind: 'verdict'; group: string; path: s
 export type LineDraft = { id: string; kind: 'line'; createdAt: number } & LineComment
 // A comment on an artifact in the preview pane (ArtifactNotes.tsx); reaction: an emoji alone.
 export type ArtDraft = { id: string; kind: 'artifact'; anchor: ArtifactAnchor; quote: string; text: string; images: ImageRef[]; createdAt: number; reaction?: boolean }
-export type Draft = NoteDraft | ArtDraft | AnswerDraft | DismissDraft | DoneDraft | VerdictDraft | LineDraft
+export type Draft = NoteDraft | ArtDraft | AnswerDraft | DismissDraft | DoneDraft | CheckDraft | VerdictDraft | LineDraft
 export type Composer = { text: string; images: ImageRef[] }
 
 // One Codinger server: this page's own (LOCAL), or another machine through
@@ -694,7 +696,7 @@ const order = (msg: string) => msg.split(/[.:]/).map(Number)
 const cmp = (a: number[], b: number[]) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0); return 0 }
 
 export function hasContent(d: Draft): boolean {
-  if (d.kind === 'dismiss' || d.kind === 'done' || d.kind === 'verdict') return true
+  if (d.kind === 'dismiss' || d.kind === 'done' || d.kind === 'check' || d.kind === 'verdict') return true
   if (d.kind === 'line') return !!d.text.trim()
   // A draft goes back when edited, or approved as it is.
   if (d.kind === 'answer' && d.original != null) return !!d.text.trim() && (d.text.trim() !== d.original.trim() || !!d.approved)
@@ -754,6 +756,14 @@ export function setDoneText(sid: string, key: string, text: string) {
   changed()
 }
 
+// Tick or untick a box of a task list. was: its state before (as Claude wrote it, or as last sent).
+// Back to that state, nothing goes: the draft goes away.
+export function setCheck(sid: string, key: string, label: string, checked: boolean, was: boolean) {
+  const keep = draftsOf(sid).filter((d) => !(d.kind === 'check' && d.key === key))
+  state.drafts[sid] = checked === was ? keep : [...keep, { id: uid(), kind: 'check', key, label, checked, createdAt: Date.now() }]
+  changed()
+}
+
 // Everything queued for a session, in reading order: notes and answers in the
 // order their passages appear, then whatever is in the composer.
 // The lead's drafts (shared/inbox.ts) go with yours: its replies in reading
@@ -792,6 +802,9 @@ export function queuedParts(sid: string, alsoDismiss: { key: string; label: stri
   })
   if (files.length || comments.length) parts.push({ kind: 'review', text: '', files, comments })
   if (done.length) parts.push({ kind: 'done', text: '', items: done })
+  const checks = mine.flatMap((d) => d.kind === 'check' ? [{ key: d.key, label: d.label, checked: d.checked }] : [])
+  checks.sort((a, b) => cmp(order(a.key.replace(':t', '.')), order(b.key.replace(':t', '.'))))
+  if (checks.length) parts.push({ kind: 'check', text: '', items: checks })
   if (dismissed.length) parts.push({ kind: 'dismiss', text: '', items: dismissed })
   const c = composerOf(sid)
   if (opts.text !== false && (c.text.trim() || c.images.length)) parts.push({ kind: 'text', text: c.text, images: c.images })
