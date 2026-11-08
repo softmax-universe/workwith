@@ -38,6 +38,27 @@ const PROMPTS = path.join(DATA, 'prompts')
 const OLD_LEAD_DIR = path.join(DATA, 'master')
 if (fs.existsSync(OLD_LEAD_DIR) && !fs.existsSync(LEAD_DIR)) fs.renameSync(OLD_LEAD_DIR, LEAD_DIR)
 for (const d of [DATA, EVENTS, IMAGES, MEDIA, LEAD_DIR, PROMPTS]) fs.mkdirSync(d, { recursive: true })
+
+// One server for each data folder. A second one (a test or a dev server that found this
+// desk's CODINGER_HOME) would sweep the first one's claude processes and write over its
+// sessions.json. A restart's new server waits a few seconds for the old one to go.
+const LOCK = path.join(DATA, 'server.pid')
+function holder(): number {
+  let pid = 0
+  try { pid = Number(fs.readFileSync(LOCK, 'utf8')) } catch { return 0 }
+  if (!pid || pid === process.pid) return 0
+  try { process.kill(pid, 0) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EPERM') return 0 }
+  return pid
+}
+for (let waited = 0; holder(); waited += 250) {
+  if (waited >= 10_000) {
+    console.error(`Another Codinger server (pid ${holder()}) uses ${DATA}. Set CODINGER_HOME to another folder.`)
+    process.exit(1)
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250)
+}
+fs.writeFileSync(LOCK, String(process.pid))
+process.on('exit', () => { try { if (Number(fs.readFileSync(LOCK, 'utf8')) === process.pid) fs.rmSync(LOCK) } catch { /* gone */ } })
 export const LEAD_NOTES = path.join(LEAD_DIR, 'LEAD_NOTES.md')
 // The lead's notes were NOTES.md until October 2026. Move them once (their history moves in index.ts).
 export const OLD_LEAD_NOTES = path.join(LEAD_DIR, 'NOTES.md')
