@@ -810,6 +810,11 @@ export async function sendQueued(sid: string, alsoDismiss: { key: string; label:
   changed()
 }
 
+// What the Send button of each open session's message box does (SessionView Composer), so a
+// reply box elsewhere can send with Cmd+Enter: with the same checks for open and critical items.
+export const senders = new Map<string, () => void>()
+export const sendSession = (sid: string) => senders.get(sid)?.()
+
 // The agent's name where the UI would say "Claude".
 export const agentName = () => state.agent?.name ?? 'Claude'
 

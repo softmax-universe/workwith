@@ -8,7 +8,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { rangesFor, setHighlights } from '../anchoring.ts'
-import { addDraft, draftsOf, othersLive, removeDraft, state, uid, updateDraft, useStore, type ArtDraft, type NoteDraft } from '../store.ts'
+import { addDraft, draftsOf, othersLive, removeDraft, sendSession, state, uid, updateDraft, useStore, type ArtDraft, type NoteDraft } from '../store.ts'
 import type { Anchor, Event, Held, ImageRef, Person } from '../../../shared/types.ts'
 import { Who } from './Who.tsx'
 import { isReaction, topEmoji, usedEmoji } from '../emoji.ts'
@@ -398,6 +398,7 @@ export function NoteCard({ sid, note, onOpen, onFocus, onBlur, onHover = (on) =>
         placeholder="Comment"
         autoFocus={focus}
         minRows={1}
+        onSubmit={() => sendSession(sid)}
         onEscape={() => { if (isEmpty(note)) removeDraft(sid, note.id); else (document.activeElement as HTMLElement | null)?.blur() }}
       />
       {/* The emoji keep the focus in the comment; the picker's search field can take it. */}
