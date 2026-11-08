@@ -26,6 +26,7 @@ const GUARDS = [0, 20_000, 50_000, 100_000, 250_000, 500_000]
 const WARM_HOURS = [0, 1, 2, 4, 6, 8, 12, 16, 24]
 const WARM_MAX = [200_000, 300_000, 500_000, 750_000, 1_000_000]
 const WARM_USAGE = [50, 70, 80, 90, 100]
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 const PAGES = [['general', 'General'], ['cost', 'Plan and cost'], ['estimates', 'Estimates'], ['appearance', 'Appearance'], ['context', 'Start-up context'], ['files', 'Notes files'], ['remote', 'Remote access'], ['asks', 'Asks']] as const
 export type Page = typeof PAGES[number][0]
 
@@ -119,6 +120,13 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
               <label className="settings-check" title="As in Google Docs: the selection stays, so you can copy it. Click Comment, or press ⌘⌥M, to comment on it. Applies to this browser.">
                 <input type="checkbox" checked={st.commentButton} onChange={(e) => { state.commentButton = e.target.checked; changed() }} />
                 Selecting text shows a Comment button, instead of opening a comment
+              </label>
+              <label className="settings-check" title="In the message box and in every reply box. Ctrl+J is a line break either way. Applies to this browser.">
+                Send with
+                <select value={st.enterSends ? 'enter' : 'mod'} onChange={(e) => { state.enterSends = e.target.value === 'enter'; changed() }}>
+                  <option value="mod">{MOD}+Enter (Enter is a line break)</option>
+                  <option value="enter">Enter (Shift+Enter is a line break)</option>
+                </select>
               </label>
               {/* Only a touch screen has it; it is saved in this browser. */}
               {matchMedia('(pointer: coarse)').matches && <label className="settings-check">

@@ -79,6 +79,7 @@ ever reports a key-based auth source. The sidebar footer shows your plan's 5-hou
   list item starts the next one. Ctrl+J is a line break, as in a terminal. The inputs keep
   their own undo (Cmd+Z, Cmd+Shift+Z). Cmd+Enter (Ctrl+Enter off a Mac) sends, from the
   message box and from any reply box (a comment, an answer, a draft, a note on a review).
+  Settings can make plain Enter send instead, with Shift+Enter as the line break.
 - **Sent replies stay put.** Sent comments stay in the margin as read-only cards; your sent
   message shows what you typed, with comments, reactions and answers folded into one line
   ("2 comments, 1 reaction").

@@ -10,7 +10,7 @@ import type { ImageRef } from '../../../shared/types.ts'
 import { htmlToMarkdown } from '../htmlmd.ts'
 import { activate, enterKey, fromDom, gapKey, imageCaret, imgNode, nodeOffset, pasteText, pillText, rangeAt, rangeOffset, render, select, selectionOffsets, snapCaret, uploadNode, wrapKey } from '../mdlive.ts'
 import { imagesFrom, uploadImage } from '../util.ts'
-import { media, uploadFile } from '../store.ts'
+import { media, state, uploadFile } from '../store.ts'
 import { fileToken } from '../../../shared/files.ts'
 import { isLongPaste, pasteToken } from '../../../shared/pastes.ts'
 import { ClipIcon, ImageIcon, XIcon } from './Icons.tsx'
@@ -30,8 +30,9 @@ type Props = {
   attachRef?: React.RefObject<((files: File[]) => void) | null>
   placeholder?: string
   autoFocus?: boolean
-  // Cmd+Enter (Ctrl+Enter off a Mac) calls it.
+  // Cmd+Enter (Ctrl+Enter off a Mac) calls it, and plain Enter too when Settings says Enter sends.
   onSubmit?(): void
+  // false: Enter is a line break here, whatever Settings says (a draft of a long text).
   enterSends?: boolean
   onEscape?(): void
   minRows?: number
@@ -89,9 +90,12 @@ function lineKey(el: HTMLElement, e: React.KeyboardEvent): boolean {
   return true
 }
 
-// Whether a key sends: Cmd+Enter (Ctrl+Enter off a Mac).
-export function sendKey(e: React.KeyboardEvent, _enterSends = true): boolean {
-  return e.key === 'Enter' && !e.altKey && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)
+// Whether a key sends: Cmd+Enter (Ctrl+Enter off a Mac) always; plain Enter when Settings says
+// Enter sends (state.enterSends), and then Shift+Enter or Ctrl+J is the line break.
+export function sendKey(e: React.KeyboardEvent, enterSends = true): boolean {
+  if (e.key !== 'Enter' || e.altKey || e.nativeEvent.isComposing) return false
+  if (e.metaKey || e.ctrlKey) return true
+  return enterSends && state.enterSends && !e.shiftKey
 }
 
 // Give a field the focus with the caret at its end, so that on iOS it takes the typing (a
