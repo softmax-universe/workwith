@@ -219,7 +219,7 @@ export type Usage = { fiveHour?: number; sevenDay?: number; resetsAt?: number; s
 // trackedFiles: files whose history Codinger keeps, besides AGENTS.md, CLAUDE.md and LEAD_NOTES.md.
 // selfRestart: offer to restart when Codinger's own code changes (for working on Codinger); off by default.
 // resumeCut: a turn the server's stop cut short (a crash, a forced stop; not a restart, which keeps it
-// running) goes on when the server starts again; off by default.
+// running) goes on when the server starts again; on unless set to false.
 // appearance: unset until you pick one, which the first load asks you to do.
 // groupOrder: the lead's folders, once you drag one. groups: the sidebar's groups you made, top first. cacheGuard: tokens; see shared/cache.ts.
 // notes, keepWarmHours, keepWarmMax, keepWarmUsage: see server/notes.ts.

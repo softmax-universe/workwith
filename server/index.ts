@@ -362,6 +362,8 @@ if (!settings.autoModeMigrated) {
   saveSettings(settings)
   metaChanged()
 }
+// The machine started after the last save of sessions.json: a crash or a reboot, not a server stop.
+const MACHINE_RESTARTED = (() => { try { return fs.statSync(path.join(DATA, 'sessions.json')).mtimeMs < Date.now() - os.uptime() * 1000 } catch { return false } })()
 // Busy sessions the last server handed on keep going; any other claude process it left is stopped.
 Proc.sweep(new Set([...sessions.values()].map((s) => s.reattach()).filter((k): k is string => !!k)))
 // The others that were mid-turn lost their turn: they go on, if you asked for that
@@ -369,10 +371,11 @@ Proc.sweep(new Set([...sessions.values()].map((s) => s.reattach()).filter((k): k
 setImmediate(() => { for (const s of sessions.values()) if (s.cut) resumeCut(s) })
 function resumeCut(s: Session) {
   s.cut = false
-  if (!settings.resumeCut) return
-  if (holdReasons(s, true).length) { s.notice('The server stopped during Claude\'s turn. Its prompt cache has expired, so it goes on only when you send a message.'); return }
-  s.notice('The server stopped during Claude\'s turn. Claude goes on.')
-  s.send([{ kind: 'text', text: '[Codinger] The server stopped during your last turn, and the turn ended there. Go on from where you stopped.' }], { from: 'codinger', ...hiddenFor(s, []) })
+  const why = MACHINE_RESTARTED ? 'The machine restarted' : 'The server stopped'
+  if (settings.resumeCut === false) { s.notice(`${why} during Claude's turn. It goes on when you send a message.`, 'warn'); return }
+  if (holdReasons(s, true).length) { s.notice(`${why} during Claude's turn. Its prompt cache has expired, so it goes on only when you send a message.`, 'warn'); return }
+  s.notice(`${why} during Claude's turn. Claude goes on.`)
+  s.send([{ kind: 'text', text: `[Codinger] ${why} during your last turn, and the turn ended there. Background tasks and servers you started are gone too. Go on from where you stopped.` }], { from: 'codinger', ...hiddenFor(s, []) })
 }
 startNotes({ sessions: () => sessions.values(), settings: () => settings, usage: () => usage, changed: metaChanged })
 startTasks({ changed: (tasks) => broadcast({ type: 'tasks', tasks }), ended: taskEnded })
