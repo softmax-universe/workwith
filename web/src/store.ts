@@ -102,7 +102,7 @@ type State = {
   artifactV?: number                 // and the version of it on view there (none: the latest)
   settingsPage: string | null        // Settings is open, on this page
   panels: Record<string, Panel>      // by session: the panel beside it (SidePanel.tsx)
-  fileOpen: Record<string, { path: string; line?: number; changes?: boolean; group?: string; at: number }>   // by session: the file or folder its Files tab shows, and the group for review it was opened from
+  fileOpen: Record<string, { path: string; line?: number; changes?: boolean; group?: string; seq?: number; at: number }>   // by session: the file or folder its Files tab shows, and the group for review it was opened from
   artifacts: Artifact[]
   artifactsPort: number              // where the server that runs artifacts listens
   prolifica: ProlificaState
@@ -212,6 +212,9 @@ export const localId = (id: string) => id.includes(SEP) ? id.slice(id.indexOf(SE
 export const globalId = (machine: string, id: string) => machine ? `${machine}${SEP}${id}` : id
 // A session id that a server sent (in a message, a task, a tool call): on the current machine.
 export const here = (id: string) => globalId(currentMachine(), id)
+// The messages a session wants to send to archived sessions: each waits for your yes or no.
+export const archiveAsksOf = (sessions: SessionMeta[], id: string) =>
+  sessions.flatMap((to) => (to.mail ?? []).filter((x) => x.reopens && globalId(machineOf(to.id), x.from) === id).map((mail) => ({ to, mail })))
 
 const blank = (name: string): Machine => ({ name, connected: false, loaded: false, sessions: [], settings: { leadAutoSend: false }, usage: {}, tasks: [], platform: '', home: '', auth: { state: 'ok' }, stale: false })
 
@@ -618,11 +621,11 @@ export function opened(id: string) {
   const s = state.sessions.find((x) => x.id === id)
   if (s?.unread) void api(`/api/sessions/${id}/seen`).catch(() => {})
 }
-
 // Back in this window: the session it shows is seen now.
 window.addEventListener('focus', () => {
   if (state.sessions.find((x) => x.id === state.selected)?.unread) void api(`/api/sessions/${state.selected}/seen`).catch(() => {})
 })
+
 // Open a session at one of its events (a message, or the tool call in an activity row).
 export function revealEvent(sid: string, seq: number) {
   select(sid)

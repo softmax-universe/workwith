@@ -21,6 +21,7 @@ import { findHistory, importTranscript, lastCache, listDirs, listHistory } from 
 import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
+import { bumpEmoji, cleanEmojiUse } from '../shared/emoji.ts'
 import * as meter from './meter.ts'
 import * as costs from './costs.ts'
 import * as usageLedger from './usage.ts'
@@ -37,8 +38,9 @@ import { AGENTS_FILE, agentsPrompt, readAgentsMd, writeAgentsMd } from './agents
 import { handleMcp, type Tool } from './mcp.ts'
 import { spendSince, spendText } from './spend.ts'
 import { backfillSubagentSpend } from './subspend.ts'
-import { ESTIMATE_TOOLS, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
-import { answered, askTools, forgetAsks, startAsks } from './asks.ts'
+import { ESTIMATE_TOOLS, backfillActive, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
+import { answered, askTools, asksReply, cancelAsk, forgetAsks, startAsks } from './asks.ts'
+import { forgetIcon, setIcon } from './icons.ts'
 import { MAIL_TOOLS, flushMail, mailTools, release, startMail, stepped, takeMail, turnEnded, userWrote } from './mail.ts'
 import { AUTOPILOT_MODES, amount, nudge, startAutopilot, usedOf, verdict } from './autopilot.ts'
 import { blame, initFileHistory, moveHistory, noteEdit, record as recordVersion, versions } from './filehistory.ts'
@@ -53,7 +55,7 @@ import {
 } from './store.ts'
 import { embedOf, mediaKind, mediaType } from '../shared/media.ts'
 import { MEDIA_MAX, MEDIA_PART, keepMedia, mediaFile } from './media.ts'
-import { allowed, committedAt, diffOf, findFiles, isSecret, isText, listDir, uncommitted } from './files.ts'
+import { allowed, committedAt, diffOf, findFiles, isSecret, isText, listDir, locate, uncommitted } from './files.ts'
 import { ARTIFACTS, artifactsChanged, artifactsPrompt, checkArtifact, forgetPublish, listArtifacts, noteTool, reportOf, setVisibility, showArtifact, startPublish, startHost, typeOf, watchArtifacts } from './artifacts.ts'
 import { connectCallback, connectUrl, disconnect as prolificaDisconnect, prolificaState } from './prolifica.ts'
 import { buildShare, publishShare, unpublishShare } from './share.ts'
@@ -226,6 +228,8 @@ function notifyOnChange(s: Session) {
   if (m.kind !== 'worker' || was !== 'working' || !NOTIFY[status]) return
   setTimeout(() => {
     if (m.status !== status) return
+    // A page that shows the session marked the turn seen: 'asking' stays while asks are open.
+    if (status !== 'permission' && !m.unread) return
     remoteNotify({ title: m.title, body: pushBody(s.getEvents(), status) ?? NOTIFY[status], session: m.id })
   }, 2000).unref()
 }
@@ -286,7 +290,8 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Started with your MCP servers off: only Codinger's, until one is turned on (server/mcpservers.ts).
         ...(meta.mcp ? ['--strict-mcp-config'] : []),
         '--allowedTools', `mcp__codinger__set_look,mcp__codinger__set_title,mcp__codinger__claim_changes,mcp__codinger__start_task,mcp__codinger__stop_task,mcp__codinger__list_tasks,mcp__codinger__show_artifact,mcp__codinger__show_file,${MAIL_TOOLS.map((t) => `mcp__codinger__${t}`).join(',')}${settings.estimates !== false ? ESTIMATE_TOOLS.map((t) => `,mcp__codinger__${t}`).join('') : ''}${meta.mcp && settings.mcpClaude !== false ? ',mcp__codinger__use_mcp_server' : ''}`,
-        ...(NO_SHELL ? ['--disallowedTools', 'Bash,mcp__codinger__start_task'] : []),
+        // Agents ask with <ask> cards. The permission card cannot send answers to this tool, so an Allow would give the agent no answer.
+        '--disallowedTools', NO_SHELL ? 'AskUserQuestion,Bash,mcp__codinger__start_task' : 'AskUserQuestion',
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
@@ -371,7 +376,7 @@ function resumeCut(s: Session) {
 }
 startNotes({ sessions: () => sessions.values(), settings: () => settings, usage: () => usage, changed: metaChanged })
 startTasks({ changed: (tasks) => broadcast({ type: 'tasks', tasks }), ended: taskEnded })
-startMail({ sessions, create: createSession, hidden: hiddenFor, changed: metaChanged })
+startMail({ sessions, create: createSession, hidden: hiddenFor, changed: metaChanged, push: remoteNotify })
 startAsks({
   session: (id) => { const s = sessions.get(id); return s && s.meta.kind === 'worker' ? { title: s.meta.title } : undefined },
   push: remoteNotify,
@@ -1248,6 +1253,11 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       ...(body.plan && Number.isFinite(body.plan.usd) && body.plan.usd >= 0 ? { plan: { tier: String(body.plan.tier ?? ''), usd: body.plan.usd, ...(body.plan.yearly ? { yearly: true } : {}) } } : {}),
       ...(body.reviewSeen ? { reviewSeen: { ...settings.reviewSeen, ...Object.fromEntries(['week', 'month'].filter((k) => typeof body.reviewSeen[k] === 'string').map((k) => [k, body.reviewSeen[k]])) } } : {}),
     }
+    // A reaction: one more use of that emoji. The first one also brings what the browser counted before.
+    if (typeof body.emojiUsed === 'string' && body.emojiUsed.length <= 32) {
+      const before = settings.emoji ?? cleanEmojiUse(body.emojiSeed)
+      settings = { ...settings, emoji: bumpEmoji(before, body.emojiUsed) }
+    }
     saveSettings(settings)
     broadcast({ type: 'settings', settings })
     if (body.autoUpdate) updateModeChanged()
@@ -1306,6 +1316,13 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   // Your plan, and day-by-day spend at API prices, for the cost view (shared/costs.ts).
   if (a === 'costs' && method === 'GET') return send(res, 200, await costs.reply())
   // Estimates in agent time and dollars, next to what the work took (server/estimates.ts).
+  if (a === 'asks') {
+    if (!id && method === 'GET') return send(res, 200, asksReply((sid) => sessions.get(sid)?.meta.title))
+    if (id && method === 'DELETE') {
+      if (!cancelAsk(id)) throw new HttpError(404, 'No such ask')
+      return send(res, 200, { ok: true })
+    }
+  }
   if (a === 'estimates' && method === 'GET') return send(res, 200, estimatesReply((sid) => sessions.get(sid)?.meta.title))
   // Tokens and spend by conversation and folder, from Codinger's copy of the transcripts (shared/usage.ts).
   if (a === 'usage' && method === 'GET') {
@@ -1354,11 +1371,14 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
   if (a === 'fs' && id === 'exists' && method === 'POST') {
     // Paths named in a reply (absolute, ~/, or under the session's directory, maybe with :line): which are there.
+    // sid and seq: the session and the message, for a path relative to a worktree (server/files.ts locate).
     const body = await json(req)
     const cwd = expandHome(String(body.cwd ?? '~'))
+    const from = sessions.get(String(body.sid)), seq = Number(body.seq)
     const out: Record<string, string | null> = {}
     for (const p of (Array.isArray(body.paths) ? body.paths : []).slice(0, 200).map(String)) {
-      const abs = path.resolve(cwd, expandHome(p.replace(/(:\d+){1,2}$/, '')))
+      const bare = p.replace(/(:\d+){1,2}$/, '')
+      const abs = path.resolve(cwd, expandHome(from && seq ? locate(from.meta, from.getEvents(), bare, seq) : bare))
       out[p] = fs.existsSync(abs) ? abs : null
     }
     return send(res, 200, out)
@@ -1494,6 +1514,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     s.stop()
     sessions.delete(id)
     forgetAsks(id)
+    forgetIcon(id)
     deleteEvents(id)
     metaChanged()
     return send(res, 200, { ok: true })
@@ -1516,7 +1537,9 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
   if (b === 'fs' && method === 'GET') {
     // A folder or a file for the Files pane (server/files.ts): a folder's entries, or a file's size.
-    const abs = allowed(s.meta, s.getEvents(), url.searchParams.get('path') || '.')
+    // seq: the message that names the path, which can be relative to a worktree.
+    const named = url.searchParams.get('path') || '.', seq = Number(url.searchParams.get('seq'))
+    const abs = allowed(s.meta, s.getEvents(), seq ? locate(s.meta, s.getEvents(), named, seq) : named)
     let st: fs.Stats | null = null
     try { st = abs ? fs.statSync(abs) : null } catch {}
     if (!abs || !st) throw new HttpError(404, 'No such file, or not one this session can show')
@@ -1629,9 +1652,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       metaChanged()
       return send(res, 200, { ok: true })
     }
-    // Your OK for a message another session sent, held past the limit; or send: false to drop it.
+    // Your OK for a message another session sent, held past the limit or to an archived session;
+    // or send: false to drop it. note: your words to the sender of a message to an archived session.
     case 'mail':
-      try { release(s, String(c), body.send !== false) } catch (e) { throw new HttpError(404, (e as Error).message) }
+      try { release(s, String(c), body.send !== false, String(body.note ?? '')) } catch (e) { throw new HttpError(404, (e as Error).message) }
       return send(res, 200, { ok: true })
     case 'drafting':
       if (s.meta.drafting !== !!body.on) { s.meta.drafting = !!body.on; metaChanged() }
@@ -1714,6 +1738,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       s.meta.share = await publishShare(s.meta, s.getEvents(), settings, shareOpts(body))
       metaChanged()
       return send(res, 200, s.meta)
+    // The session's critter as a PNG, for its push notifications (web/src/critterIcon.tsx).
+    case 'icon':
+      if (!setIcon(s.meta.id, String(body.png ?? ''))) throw new HttpError(400, 'A PNG data URL of at most 2600 characters')
+      return send(res, 200, { ok: true })
     case 'seen': s.markSeen(); return send(res, 200, { ok: true })
     case 'unread': s.markUnread(); return send(res, 200, { ok: true })
     case 'permission':
@@ -1880,6 +1908,7 @@ server.listen(PORT, '127.0.0.1', () => {
   startRemote(PORT, artifactsPort, (remote) => broadcast({ type: 'remote', remote }))
   startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }) })
   findDevice((device) => broadcast({ type: 'device', device }))
+  void backfillActive((sid) => sessions.get(sid)?.meta.claudeSessionId).catch(() => {})
 })
 
 // ---- restarting itself --------------------------------------------------------

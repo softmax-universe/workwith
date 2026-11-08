@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Held as HeldReplies, Mail, Part, PermissionMode, SessionMeta, SlashCommand } from '../../../shared/types.ts'
 import { MAX_RUN } from '../../../shared/mail.ts'
-import { agentName, api, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
+import { agentName, api, archiveAsksOf, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
 import { fatigue, kTokens } from '../util.ts'
 import { Mascot, STATUS_LABEL } from './Mascot.tsx'
 import { dragToGroup } from './Sidebar.tsx'
@@ -234,11 +234,11 @@ function SessionMenu({ m, open, setOpen, onPublish }: { m: SessionMeta; open: Me
     worker && <button key="autopilot" className={autopilotOn(m) ? 'autopilot-on' : ''} onClick={() => setOpen('autopilot')}>
       {autopilotOn(m) ? `Autopilot · ${budgetLabel(ap!.unit, Math.max(0, ap!.budget - ap!.used))} left` : 'Autopilot'}
     </button>,
+    worker && <button key="star" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { starred: !m.starred }))}>{m.starred ? 'Remove star' : 'Star'}</button>,
     worker && <button key="publish" onClick={act(onPublish)}>{m.share ? 'Published transcript' : 'Publish transcript'}</button>,
     worker && !m.archived && <button key="close" title="Archive session" onClick={act(() => closeSession(m.id))}>Close</button>,
     worker && m.archived && <button key="reopen" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { archived: false }))}>Reopen</button>,
     worker && m.archived && <button key="delete" className="danger" title="Remove from Codinger (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from Codinger? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,
-    worker && <button key="star" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { starred: !m.starred }))}>{m.starred ? 'Remove star' : 'Star'}</button>,
   ].filter(Boolean)
   // Press, drag to an item and release to choose it, as in a native menu. A press opens the
   // menu; a release over an item clicks it, a release away from the menu closes it, and a
@@ -405,6 +405,31 @@ function Batch({ h, unhold }: { h: HeldReplies; unhold?: (id: string, part?: num
   )
 }
 
+// A message this session wants to send to an archived session. A yes takes that session out of
+// the archive; a no tells this session that the message did not go.
+function ArchiveAsk({ to, x }: { to: SessionMeta; x: Mail }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const answer = async (send: boolean) => {
+    setBusy(true)
+    try { await api(`/api/sessions/${to.id}/mail/${x.id}`, 'POST', { send, note }) } finally { setBusy(false) }
+  }
+  return (
+    <div className="inbox-item archive-ask" data-pid="archive-ask">
+      <div className="inbox-head">
+        <span className="inbox-from"><MailIcon size={12} /> Asks to write to {to.archived ? 'an archived session' : 'a session'}</span>
+        <button className="link inbox-on" onClick={() => select(to.id)}>{to.title}</button>
+      </div>
+      <div className="mail-text">{x.text}</div>
+      <div className="perm-actions">
+        <button className="primary" disabled={busy} onClick={() => answer(true)}>Send</button>
+        <input placeholder="Note to this session" value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="danger" disabled={busy} onClick={() => answer(false)}>Do not send</button>
+      </div>
+    </div>
+  )
+}
+
 function heldSummary(parts: Part[]): string {
   const n = (k: Part['kind']) => parts.filter((p) => p.kind === k).length
   const out: string[] = []
@@ -443,7 +468,7 @@ function Mailbox({ m }: { m: SessionMeta }) {
           <div className="inbox-head">
             <span className="inbox-from"><MailIcon size={12} /> {x.idle ? `${name(x)} is idle` : x.replyTo ? `Reply from ${name(x)}` : `From ${name(x)}`}</span>
             <span className="inbox-on">
-              {x.held ? `Waits for your OK: ${name(x)} sent ${MAX_RUN} messages in a row here, and you wrote in neither session since.` : x.step ? `Goes in when ${name(x)} goes on or ends its turn` : 'Goes in when this turn ends'}
+              {x.reopens ? `Waits for your OK: ${name(x)} asks to take this session out of the archive with this message.` : x.held ? `Waits for your OK: ${name(x)} sent ${MAX_RUN} messages in a row here, and you wrote in neither session since.` : x.step ? `Goes in when ${name(x)} goes on or ends its turn` : 'Goes in when this turn ends'}
             </span>
             {x.held && <button className="link" onClick={() => act(x.id, true)}>Send</button>}
             <button className="icon-btn" title="Discard the message" onClick={() => act(x.id, false)}><XIcon size={13} /></button>
@@ -519,7 +544,8 @@ function DismissedChip({ sid }: { sid: string }) {
 const resolve = (n: number) => <>Resolve {n}<span className="not-phone not-narrow"> {n === 1 ? 'issue' : 'issues'}</span> ↑</>
 
 export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.RefObject<((files: File[]) => void) | null> }) {
-  useStore()
+  const { sessions } = useStore()
+  const asks = archiveAsksOf(sessions, m.id)
   const c = composerOf(m.id)
   const drafts = draftsOf(m.id).filter(hasContent)
   const reactions = drafts.filter((d) => (d.kind === 'note' || d.kind === 'artifact') && isReaction(d.text) && !d.images.length).length
@@ -568,6 +594,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
   return (
     <div className="composer">
       <RunningTasks sid={m.id} />
+      {asks.length > 0 && <div className="inbox">{asks.map(({ to, mail }) => <ArchiveAsk key={mail.id} to={to} x={mail} />)}</div>}
       <Inbox m={m} />
       <Held m={m} />
       {(!!m.mail?.length || notes > 0 || verdicts > 0 || reactions > 0 || answers > 0 || dismissed > 0 || done > 0 || open.length > 0) && (

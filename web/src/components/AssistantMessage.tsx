@@ -7,7 +7,7 @@
 // has arrived.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import type { Token, Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import { parseAskBody, type Ask } from '../../../shared/asks.ts'
@@ -17,15 +17,16 @@ import { holdKeyboard, marked, renderInline, renderText, served } from '../util.
 import { anchorFromRange, mediaIn, passageQuote, rangesFor, setHighlights } from '../anchoring.ts'
 import { render as renderLive } from '../mdlive.ts'
 import { Who } from './Who.tsx'
-import { addDraft, api, changed, LOCAL, machineOf, dismissItem, draftsOf, markDone, othersLive, removeDraft, reviveItem, setDoneText, state, uid, undismissItem, updateDraft, useStore, type AnswerDraft, type DoneDraft, type NoteDraft } from '../store.ts'
+import { addDraft, api, changed, LOCAL, localId, machineOf, dismissItem, draftsOf, markDone, othersLive, removeDraft, reviveItem, setDoneText, state, uid, undismissItem, updateDraft, useStore, type AnswerDraft, type DoneDraft, type NoteDraft } from '../store.ts'
 import type { TrackedItem } from '../items.ts'
 import { focusField, RichInput, Thumbs } from './Inputs.tsx'
-import { CheckIcon, ChevronIcon, CommentIcon, TerminalIcon, UndoIcon, XIcon } from './Icons.tsx'
+import { CheckIcon, ChevronIcon, CommentIcon, PlusIcon, TerminalIcon, UndoIcon, XIcon } from './Icons.tsx'
 import { EmojiPicker } from './EmojiPicker.tsx'
 import { openFile } from './FileBrowser.tsx'
 import { ReviewCard } from './Review.tsx'
 import { ArtifactFrame } from './Artifacts.tsx'
 import { focusPassage, onPassage } from './Margin.tsx'
+import { WithPastes } from './Paste.tsx'
 import { lastEmoji, topEmoji, usedEmoji } from '../emoji.ts'
 import { highlight } from '../highlight.ts'
 
@@ -140,7 +141,7 @@ export const AssistantMessage = memo(function AssistantMessage({ sid, msg, text,
   }, [noteKey, sentKey, pieces, sid, msg, live])
   useCodeCopy(root, live)
   useBlockCopy(root, pieces, live)
-  useReveal(root, sid, pieces, live)
+  useReveal(root, sid, msg, pieces, live)
 
   return (
     <div className={`assistant-text md${live ? ' streaming' : ''}`} ref={root} {...(live ? {} : { 'data-msg': msg, 'data-sid': sid })}>
@@ -330,7 +331,7 @@ function LeftRail({ sid, root, reacts, drafted }: { sid: string; root: React.Ref
 
   useEffect(() => {
     if (!row) return
-    const down = (e: MouseEvent) => { if (!(e.target as Element).closest('.rail-row')) setRow(null) }
+    const down = (e: MouseEvent) => { if (!(e.target as Element).closest('.rail-row, .ack-pop')) setRow(null) }
     document.addEventListener('mousedown', down)
     return () => document.removeEventListener('mousedown', down)
   }, [row])
@@ -420,7 +421,7 @@ function LeftRail({ sid, root, reacts, drafted }: { sid: string; root: React.Ref
     const el = root.current
     const zone = el?.closest('.transcript-inner')
     if (!el || !zone) return
-    const skip = (at: EventTarget | null) => !!(at as Element | null)?.closest?.('.rail-row, button, a, input, textarea, .note-card')
+    const skip = (at: EventTarget | null) => !!(at as Element | null)?.closest?.('.rail-row, .ack-pop, button, a, input, textarea, .note-card')
     const hit = (x: number, y: number) => {
       const r = el.getBoundingClientRect()
       if (x < Math.max(20, r.left - 40) || x > r.left - 4 || y < r.top - 14 || y > r.bottom) return null
@@ -450,30 +451,51 @@ function LeftRail({ sid, root, reacts, drafted }: { sid: string; root: React.Ref
   }, [root])
 
   const all = target && !rows.some((r) => r.top === target.top) ? [...rows, { top: target.top, items: [] }] : rows
-  // The row and the remove button to its left stay right of the transcript's edge, clear of the sidebar.
-  const pop = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const el = pop.current, pane = el?.closest('.transcript')
-    if (!el || !pane) return
-    el.style.left = ''
-    const left = Math.min(...[...el.children].map((c) => c.getBoundingClientRect().left))
-    const min = pane.getBoundingClientRect().left + 8
-    if (left < min) el.style.left = `${el.offsetLeft + min - left}px`
-  })
+  // The row opens above its button, over the session's header, so the body of the page holds it
+  // (the transcript's scroll would clip it). It opens below only when the top of the screen leaves
+  // no room. The row and the remove button to its left stay inside the transcript's left and right
+  // edges, clear of the sidebar. A scroll or a resize places it again.
+  const pop = useRef<HTMLDivElement>(null), spot = useRef<HTMLSpanElement>(null)
+  const placePop = () => {
+    const el = pop.current, at = spot.current?.parentElement, pane = at?.closest('.transcript')
+    if (!el || !at || !pane) return
+    el.style.setProperty('--fs', getComputedStyle(at).getPropertyValue('--fs'))
+    el.style.left = el.style.top = '0px'
+    const a = at.getBoundingClientRect(), box = pane.getBoundingClientRect(), own = el.getBoundingClientRect()
+    const kids = [...el.children].map((c) => c.getBoundingClientRect())
+    const left = Math.min(...kids.map((r) => r.left)), right = Math.max(...kids.map((r) => r.right))
+    const min = box.left + 8, max = box.right - 8
+    let x = a.left - 6
+    if (x + left < min) x = min - left
+    else if (x + right > max) x = Math.max(max - right, min - left)
+    const top = (parseFloat(getComputedStyle(el).scrollMarginTop) || 0) + 4
+    const y = a.top - 4 - own.height < top ? a.bottom + 4 : a.top - 4 - own.height
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+  }
+  useLayoutEffect(placePop)
+  useEffect(() => {
+    if (!row) return
+    const again = () => placePop()
+    document.addEventListener('scroll', again, true)
+    addEventListener('resize', again)
+    return () => { document.removeEventListener('scroll', again, true); removeEventListener('resize', again) }
+  }, [row])
   // A passage's row of emoji and its emoji search, when open.
   const popFor = (p: Pick) => {
     const on = onOf(p)
     return <>
-      {row === p.id && (
+      {row === p.id && <span ref={spot} hidden />}
+      {row === p.id && createPortal(
         <div className="ack-pop" ref={pop}>
         {/* Takes your reactions off this passage: outside the row, so it can't be mistaken for an emoji. */}
         {on.size > 0 && <button className="ack-clear" data-emoji="remove" onClick={() => toggle('remove', p)}><XIcon size={14} /></button>}
         <div className="ack-row">
           {[...new Set([...on, ...topEmoji(8)])].slice(0, Math.max(8, on.size)).map((e) => <button key={e} data-emoji={e} className={on.has(e) ? 'on' : ''} onClick={() => toggle(e, p)}><span>{e}</span></button>)}
-          <button className="more-emoji" data-emoji="+" onClick={() => toggle('+', p)}>+</button>
-          <button className="more-emoji" data-emoji="comment" onClick={() => toggle('comment', p)}><CommentIcon size={17} /></button>
+          <button className="more-emoji" data-emoji="+" onClick={() => toggle('+', p)}><span><PlusIcon size={17} /></span></button>
+          <button className="more-emoji" data-emoji="comment" onClick={() => toggle('comment', p)}><span><CommentIcon size={17} /></span></button>
         </div>
-        </div>
+        </div>, document.body,
       )}
       {search === p.id && <EmojiPicker onPick={(e) => toggle(e, p)} onClose={() => setSearch(null)} />}
     </>
@@ -584,22 +606,23 @@ function useBlockCopy(root: React.RefObject<HTMLDivElement | null>, pieces: Piec
 // in Finder. Only paths that are there get them. A link to a path opens it in the pane too.
 const PATH = /^(?:(?:~|\.{0,2})\/[^\n<>"|*?]*|[\w.@+-]+\/[^\s<>"|*?]*|[\w@+-][\w.@+-]*\.\w{1,8}(?::\d+){0,2})$/
 const LOCAL_HREF = /^(?![a-z][a-z0-9+.-]*:|\/\/|#|\/api\/)/i
-const found = new Map<string, string | null>()   // machine + cwd + path → the full path, or null
+const found = new Map<string, string | null>()   // machine + cwd + session + message + path → the full path, or null
 const FOLDER = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4.5V12a1 1 0 001 1h10a1 1 0 001-1V6a1 1 0 00-1-1H8L6.5 3.5H3A1 1 0 002 4.5z"/></svg>'
 
-function useReveal(root: React.RefObject<HTMLDivElement | null>, sid: string, pieces: Piece[], live: boolean) {
+function useReveal(root: React.RefObject<HTMLDivElement | null>, sid: string, msg: string, pieces: Piece[], live: boolean) {
   useEffect(() => {
     const el = root.current
     if (!el || live || state.share) return
+    const seq = parseInt(msg)
     for (const a of el.querySelectorAll<HTMLAnchorElement>('a[href]')) {
       const href = a.getAttribute('href')!
       if (!LOCAL_HREF.test(href) || a.dataset.file) continue
       a.dataset.file = '1'
-      a.addEventListener('click', (e) => { e.preventDefault(); openFile(sid, decodeURI(href.split('#')[0])) })
+      a.addEventListener('click', (e) => { e.preventDefault(); openFile(sid, decodeURI(href.split('#')[0]), false, undefined, seq) })
     }
     const machine = machineOf(sid)
     const cwd = state.sessions.find((s) => s.id === sid)?.cwd ?? '~'
-    const key = (t: string) => `${machine}\n${cwd}\n${t}`
+    const key = (t: string) => `${machine}\n${cwd}\n${sid}\n${seq}\n${t}`
     const codes = [...el.querySelectorAll<HTMLElement>('code')].filter((c) => {
       const t = c.textContent?.trim() ?? ''
       return !c.closest('pre, a') && !c.classList.contains('file-link') && t.length < 400 && !t.includes('://') && PATH.test(t)
@@ -612,7 +635,7 @@ function useReveal(root: React.RefObject<HTMLDivElement | null>, sid: string, pi
         const abs = found.get(key(t))
         if (!abs || !c.isConnected || c.classList.contains('file-link')) continue
         c.classList.add('file-link')
-        c.addEventListener('click', () => { if (getSelection()?.isCollapsed) openFile(sid, t) })
+        c.addEventListener('click', () => { if (getSelection()?.isCollapsed) openFile(sid, t, false, undefined, seq) })
         if (machine !== LOCAL || state.web) continue
         const b = document.createElement('button')
         b.className = 'reveal'
@@ -624,12 +647,12 @@ function useReveal(root: React.RefObject<HTMLDivElement | null>, sid: string, pi
     }
     const ask = [...new Set(codes.map((c) => c.textContent!.trim()))].filter((t) => !found.has(key(t)))
     if (!ask.length) add()
-    else void api<Record<string, string | null>>('/api/fs/exists', 'POST', { cwd, paths: ask }, machine).then((r) => {
+    else void api<Record<string, string | null>>('/api/fs/exists', 'POST', { cwd, paths: ask, sid: localId(sid), seq }, machine).then((r) => {
       for (const t of ask) found.set(key(t), r[t] ?? null)
       if (!gone) add()
     }).catch(() => {})
     return () => { gone = true }
-  }, [root, sid, pieces, live])
+  }, [root, sid, msg, pieces, live])
 }
 
 // The <details> you opened, so that one stays open when its message renders anew.
@@ -793,7 +816,7 @@ function DraftCard({ c, ask, compact, block }: { c: Ctx; ask: Ask & { draft: str
           {status === 'dismissing' && <button className="icon-btn pop-in" title="Undo" onClick={() => undismissItem(c.sid, askKey)}><UndoIcon size={14} /></button>}
           <Done status={answer ? 'answered' : status} />
         </>)}
-        {!compact && !fold.aside && <div className="draft-text md" dangerouslySetInnerHTML={{ __html: renderText(text) }} />}
+        {!compact && !fold.aside && <WithPastes className="draft-text md" text={text} render={renderText} sid={c.sid} />}
       </div>
     )
   }
@@ -894,7 +917,7 @@ function QuestionCard({ c, ask, compact, block }: { c: Ctx; ask: Ask; compact?: 
         </div>
         <div className="ask-answer">
           <span className="muted ask-who">{state.share ? 'Answer:' : 'You:'}</span>{' '}
-          {answer.choices?.length ? <b>{answer.choices.join('; ')}</b> : null} {answer.text}
+          {answer.choices?.length ? <b>{answer.choices.join('; ')}</b> : null} <WithPastes text={answer.text} render={renderText} sid={c.sid} />
           <Thumbs images={answer.images} />
         </div>
       </div>

@@ -17,6 +17,7 @@ import { NewSession } from './components/NewSession.tsx'
 import { Lightbox } from './components/Lightbox.tsx'
 import { Palette } from './components/Palette.tsx'
 import { PhoneSetup } from './components/PhoneSetup.tsx'
+import { useCritterIcons } from './critterIcon.tsx'
 import './push.ts'
 import './styles.css'
 
@@ -32,6 +33,7 @@ function App() {
   const name = st.agent?.name ?? 'Codinger'
   useEffect(() => { document.title = needs ? `(${needs}) ${name}` : name }, [needs, name])
   useFavicon(st.sessions, st.settings.appearance, st.agent?.avatar ? `${ROOT}/agent/icon-64.png` : undefined)
+  useCritterIcons(st.sessions)
 
   // The first load asks for a colour; the welcome stays until you close it.
   const [welcome, setWelcome] = useState(false)
