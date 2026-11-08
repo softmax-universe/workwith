@@ -24,6 +24,8 @@
 //   CODINGER_ALERT_CMD      (server/billing.ts) a shell command run when sessions go to per-token
 //                           billing, with the reason in CODINGER_ALERT_TEXT
 //   CODINGER_NO_SHELL       (server/index.ts) 1: no shell commands, for a page open to strangers
+//   CODINGER_HISTORY        (server/index.ts) own: recent folders and conversations to resume come
+//                           only from this desk's sessions, not all of the user's Claude Code history
 //   CODINGER_HOSTS          (server/index.ts) may hold "*.trycloudflare.com" for such a tunnel
 //   CODINGER_SUPERVISED     (server/index.ts) 1: a restart only stops this server, and the
 //                           supervisor (systemd, launchd) starts the next one

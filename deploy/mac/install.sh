@@ -53,7 +53,8 @@ CODINGER_HOSTS=$host
 CODINGER_PEOPLE='$PEOPLE'
 # A named desk: CODINGER_AGENT_NAME, CODINGER_AGENT_AVATAR, ... (server/agent.ts)
 EOF
-  [ -z "$AGENT_NAME" ] || echo "CODINGER_AGENT_NAME=$AGENT_NAME" >> "$env"
+  # A second desk shares the user's Claude Code history; it offers only its own.
+  [ -z "$AGENT_NAME" ] || printf 'CODINGER_AGENT_NAME=%s\nCODINGER_HISTORY=own\n' "$AGENT_NAME" >> "$env"
   echo "wrote $env"
 else
   echo "kept $env"

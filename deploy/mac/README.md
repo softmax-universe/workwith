@@ -28,7 +28,8 @@ serve`. The first time, Tailscale prints a link to turn on Serve for the tailnet
   mini`. It has its own checkout (`~/services/hyperdesk`), data (`~/.hyperdesk`, which its
   launchd job passes as `CODINGER_HOME`), job (`app.codinger.hyperdesk`), git remote
   (`git push hyperdesk main`) and URL (`https://<mac>.<tailnet>.ts.net:8446`), so one desk can
-  work on Codinger while you talk to it from the other.
+  work on Codinger while you talk to it from the other. Its recent folders and conversations to
+  resume are only its own (`CODINGER_HISTORY=own`), though both share the user's Claude Code.
 - **Settings:** edit `~/.codinger/desk.env`, then restart from the page or
   `launchctl kickstart -k gui/$(id -u)/app.codinger.desk`.
 

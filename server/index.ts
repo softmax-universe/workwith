@@ -165,6 +165,15 @@ function runWindows(sid: string, cwd: string, cmd: string): string {
 let lastCommands: SlashCommand[] = (() => { try { return JSON.parse(fs.readFileSync(COMMANDS_FILE, 'utf8')) } catch { return [] } })()
 
 const metas = () => [...sessions.values()].map((s) => s.meta)
+// CODINGER_HISTORY=own: the Claude Code history this desk offers (recent folders, conversations to
+// resume) is only its own sessions', for a second desk that shares a user (deploy/mac/README.md).
+const OWN_HISTORY = desk('HISTORY') === 'own'
+const history = () => {
+  const items = listHistory()
+  if (!OWN_HISTORY) return items
+  const mine = new Set(metas().map((m) => m.claudeSessionId))
+  return items.filter((h) => mine.has(h.id))
+}
 
 // The sessions that edited a file since its last commit (or, for a file git does not have, in the
 // last 14 days), with those edits: the Changes view tells by them which session wrote which line
@@ -958,7 +967,7 @@ const tools: Tool[] = [
     run: ({ query, limit }) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       const byClaude = new Map(metas().map((m) => [m.claudeSessionId, m.id]))
-      return listHistory()
+      return history()
         .filter((h) => !h.continuedIn && !h.cwd.startsWith(DATA))
         .filter((h) => { const hay = `${h.title} ${h.cwd} ${h.firstPrompt} ${h.lastPrompt}`.toLowerCase(); return words.every((w) => hay.includes(w)) })
         .slice(0, Math.min(Number(limit) || 10, 50))
@@ -1313,7 +1322,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (a === 'history' && !id && method === 'GET') {
     const byClaude = new Map(metas().map((m) => [m.claudeSessionId, m.id]))
     const q = (url.searchParams.get('q') ?? '').toLowerCase()
-    const items = listHistory()
+    const items = history()
       .filter((h) => !h.continuedIn && !h.cwd.startsWith(DATA))
       .filter((h) => !q || `${h.title} ${h.cwd} ${h.firstPrompt} ${h.lastPrompt}`.toLowerCase().includes(q))
       .slice(0, 300)
@@ -1329,7 +1338,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (!cur || cur.ts < ts) seen.set(p, { path: p, ts, source: cur && cur.source !== source ? 'both' : source })
     }
     for (const m of metas()) if (m.kind === 'worker') add(m.cwd, m.lastActivity, 'codinger')
-    for (const h of listHistory()) add(h.cwd, h.mtime, 'claude')
+    for (const h of history()) add(h.cwd, h.mtime, 'claude')
     const dirs = [...seen.values()].filter((d) => fs.existsSync(d.path)).sort((x, y) => y.ts - x.ts).slice(0, 60)
     return send(res, 200, dirs)
   }
