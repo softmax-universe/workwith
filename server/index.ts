@@ -13,12 +13,12 @@ import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
 import { criticalUnanswered, inboxLabel, inboxParts, openItemsOf } from '../shared/inbox.ts'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
 import { findHistory, importTranscript, lastCache, listDirs, listHistory } from './history.ts'
-import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, workerNotesPrompt } from './prompts.ts'
+import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
 import { bumpEmoji, cleanEmojiUse } from '../shared/emoji.ts'
@@ -28,10 +28,11 @@ import * as usageLedger from './usage.ts'
 import { notesDir, notesNow, notesPath, readNotes, resumeKeepWarm, startNotes } from './notes.ts'
 import { notesFile } from '../shared/notes.ts'
 import { flagProblem } from '../shared/flags.ts'
+import { autoTitle } from './describe.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
-import { agentInfo, agentPage, ASK_NAME, BASE, billing, desk, personOf, serveAgent } from './agent.ts'
+import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
 import { AGENTS_FILE, agentsPrompt, readAgentsMd, writeAgentsMd } from './agentsmd.ts'
@@ -241,7 +242,7 @@ const hooks: Hooks = {
     metaChanged()
     if (event.t === 'assistant') stepped(s, event.blocks.flatMap((b) => b.type === 'tool_use' ? [b.name] : []))
     if (event.t === 'assistant') for (const b of event.blocks) if (b.type === 'tool_use') toolStarted(s.meta.cwd, b.id, b.name, event.ts)
-    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s) })
+    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s); autoTitle(s, metaChanged) })
     // A tool call that finished may have changed a tracked file: record it with this message.
     if (event.t === 'tool_result') {
       const ev = s.getEvents()
@@ -295,7 +296,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -395,7 +396,7 @@ function get(id: string): Session {
   return s
 }
 
-function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; mcp?: string[] }): Session {
+function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; gitInit?: boolean; mcp?: string[] }): Session {
   const flags = Array.isArray(o.flags) ? o.flags.map((f) => String(f).trim()).filter(Boolean) : []
   for (const f of flags) { const p = flagProblem(f); if (p) throw new HttpError(400, p) }
   const cwd = path.resolve(expandHome(String(o.cwd ?? '').trim()))
@@ -403,10 +404,14 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
     try { fs.mkdirSync(cwd, { recursive: true }) } catch (e) { throw new HttpError(400, `Can't create ${cwd}: ${(e as Error).message}`) }
   }
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new HttpError(400, `Not a directory: ${cwd}`)
+  // A new project: a git repository from the start, if asked and it is not in one yet.
+  if (o.gitInit && !inGit(cwd)) {
+    try { execFileSync('git', ['init', '-q'], { cwd, timeout: 15_000, stdio: 'pipe' }) } catch (e) { throw new HttpError(400, `git init failed in ${cwd}: ${(e as Error).message}`) }
+  }
   const mode = MODES.includes(o.permissionMode as PermissionMode) ? o.permissionMode! : 'auto'
   const group = o.group ? String(o.group) : o.parentId ? sessions.get(o.parentId)?.meta.group : undefined
   const s = adopt(newMeta({
-    cwd, title: o.title?.trim() || path.basename(cwd), model: o.model || null, permissionMode: mode,
+    cwd, title: o.title?.trim() || path.basename(cwd), ...(o.title?.trim() ? { titled: true } : {}), model: o.model || null, permissionMode: mode,
     ...(flags.length ? { flags } : {}),
     parentId: o.parentId && sessions.has(o.parentId) ? o.parentId : null,
     // Its group: the one asked for, else its parent's.
@@ -420,6 +425,14 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
   }))
   metaChanged()
   return s
+}
+
+// Whether a directory is in a git work tree: it or a folder above it has .git.
+function inGit(dir: string): boolean {
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return true
+    if (path.dirname(d) === d) return false
+  }
 }
 
 // Pick up a session from Claude Code's own history, conversation included.
@@ -729,6 +742,7 @@ function titleTool(id: string): Tool {
       // Over a name the user gave, keep theirs to undo to.
       if (m.titleByUser && m.titleBefore == null) m.titleBefore = m.title
       m.title = t
+      m.titled = true
       metaChanged()
       return m.titleBefore != null ? `Renamed to "${t}". The user had named it "${m.titleBefore}" and can undo this.` : `Renamed to "${t}".`
     },
@@ -802,7 +816,7 @@ watchArtifacts(() => broadcast(artifactsMsg()))
 function artifactTool(id: string): Tool {
   return {
     name: 'show_artifact',
-    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves.',
+    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves; that works only in a browser on this machine, not for a user on another one.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The artifact\'s folder name' }, url: { type: 'string', description: 'Instead: http://localhost:<port>/...' } } },
     run: async (args) => {
       const s = get(id)
@@ -811,7 +825,9 @@ function artifactTool(id: string): Tool {
         try { u = new URL(String(args.url)) } catch { return 'Give a full address, like http://localhost:5173/.' }
         if (!/^https?:$/.test(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return 'Only pages on this machine (localhost) show in the pane.'
         broadcast({ type: 'preview', sessionId: id, target: { url: u.href }, at: Date.now() })
-        return `Shown in the preview pane: ${u.href}`
+        // The pane loads it in the user's browser, whose localhost is this machine's only on this machine.
+        if (PROXIED) return `Sent to the preview pane: ${u.href}. But the user's browser is on another machine, where this address does not reach this machine, so the pane is probably empty. Show a screenshot instead, or make an artifact.`
+        return `Shown in the preview pane: ${u.href}. If the user's browser is on another machine (they reach this desk through web.codinger.app or a proxy), it can't load this address: show a screenshot instead.`
       }
       const name = String(args?.name ?? '').trim()
       const bad = checkArtifact(name)
@@ -822,7 +838,7 @@ function artifactTool(id: string): Tool {
       const v = showArtifact(name, { sid: id, seq: ev?.seq ?? 0, ts: Date.now(), show: true, tool: call?.type === 'tool_use' ? call.id : undefined })
       artifactsChanged()
       broadcast({ type: 'preview', sessionId: id, target: { artifact: name }, at: Date.now() })
-      return `Shown in the preview pane (http://127.0.0.1:${artifactsPort}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
+      return `Shown in the preview pane (${PROXIED ? `${BASE}/_artifacts` : `http://127.0.0.1:${artifactsPort}`}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
     },
   }
 }
@@ -1370,7 +1386,19 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const p = path.resolve(expandHome((url.searchParams.get('path') || '').trim() || '~'))
     let kind: 'dir' | 'file' | 'missing' = 'missing'
     try { kind = fs.statSync(p).isDirectory() ? 'dir' : 'file' } catch {}
-    return send(res, 200, { path: p, kind })
+    return send(res, 200, { path: p, kind, git: kind === 'dir' && inGit(p) })
+  }
+  if (a === 'fs' && id === 'mkdir' && method === 'POST') {
+    // A new folder from the folder browser: one name in a folder that is there.
+    const body = await json(req)
+    const parent = path.resolve(expandHome(String(body.parent ?? '').trim() || '~'))
+    const name = String(body.name ?? '').trim()
+    if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new HttpError(400, 'Give a folder name, with no slashes')
+    if (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory()) throw new HttpError(400, `Not a directory: ${parent}`)
+    const p = path.join(parent, name)
+    if (fs.existsSync(p)) throw new HttpError(400, `${p} is there already`)
+    try { fs.mkdirSync(p) } catch (e) { throw new HttpError(400, `Can't create ${p}: ${(e as Error).message}`) }
+    return send(res, 200, { path: p })
   }
   if (a === 'fs' && id === 'exists' && method === 'POST') {
     // Paths named in a reply (absolute, ~/, or under the session's directory, maybe with :line): which are there.
@@ -1492,6 +1520,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (body.undo && s.meta.titleBefore != null) s.meta.titleUndone = s.meta.title
       s.meta.title = body.title.trim()
       s.meta.titleByUser = true
+      s.meta.titled = true
       s.meta.titleBefore = undefined
     }
     // Into another sidebar group (null: none), with the sessions it started that were in its old one.
@@ -1767,6 +1796,9 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
 const server = http.createServer(async (req, res) => {
   try {
+    // An artifact's page loads its data and reports its errors from a sandboxed frame, whose
+    // origin is "null": it comes before the check of the origin, and reaches only the artifacts.
+    if (localHost(req) && /^\/_artifacts(\/|$)/.test(underBase(BASE, req.url ?? '/'))) return proxyArtifacts(req, res, underBase(BASE, req.url ?? '/').slice('/_artifacts'.length) || '/')
     if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'workwith only answers requests from its own page')
     // Under CODINGER_BASE the page is at <base>/, so its service worker can have that scope.
     if (BASE && req.url === BASE) { res.writeHead(308, { location: BASE + '/' }).end(); return }
@@ -1792,6 +1824,21 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) send(res, status, { error: e instanceof Error ? e.message : String(e) })
   }
 })
+
+// The artifacts server listens on 127.0.0.1 only, which a browser on another machine can't reach
+// (issue #3): the page frames artifacts from <base>/_artifacts/ then (web/src/store.ts, artifactsBase).
+// That is the page's own origin, so each response is sandboxed with no allow-same-origin: an
+// artifact runs in an origin of its own, as it does on the artifacts server's port.
+const ARTIFACT_SANDBOX = 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-modals'
+function proxyArtifacts(req: http.IncomingMessage, res: http.ServerResponse, rest: string) {
+  const headers = { ...req.headers, host: `127.0.0.1:${artifactsPort}`, 'x-codinger-base': `${BASE}/_artifacts`, 'x-codinger-origin': originOf(req) }
+  const p = http.request({ host: '127.0.0.1', port: artifactsPort, method: req.method, path: rest, headers }, (r) => {
+    res.writeHead(r.statusCode ?? 502, { ...r.headers, 'content-security-policy': ARTIFACT_SANDBOX })
+    r.pipe(res)
+  })
+  p.on('error', () => { if (!res.headersSent) res.writeHead(502).end('The artifacts server did not answer') })
+  req.pipe(p)
+}
 
 const DIST = path.join(ROOT, 'dist')
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' }
@@ -1841,7 +1888,7 @@ server.on('upgrade', (req, socket, head) => {
     sockets.add(ws)
     present.set(ws, personOf(req))
     ws.on('close', () => { sockets.delete(ws); present.delete(ws); broadcast({ type: 'people', people: people() }) })
-    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
+    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), defaultDir: DEFAULT_DIR, auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
     ws.send(JSON.stringify({ type: 'tasks', tasks: allTasks() } satisfies ServerMsg))
     ws.send(JSON.stringify(artifactsMsg()))
     broadcast({ type: 'people', people: people() })

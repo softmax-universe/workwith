@@ -84,12 +84,14 @@ function DirBrowser({ start, onChoose, machine }: { start: string; onChoose(p: s
   const [listing, setListing] = useState<DirListing | null>(null)
   const [hidden, setHidden] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The name of a new folder to make here; null: the "New folder" button shows.
+  const [newName, setNewName] = useState<string | null>(null)
   const go = async (p: string, h = hidden) => {
     try {
       const r = await fetch(urlOf(`/api/fs/dirs?path=${encodeURIComponent(p)}${h ? '&hidden=1' : ''}`, machine))
       const j = await r.json()
       if (!r.ok) throw new Error(j.error)
-      setListing(j); setErr(null)
+      setListing(j); setErr(null); setNewName(null)
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
   }
   useEffect(() => { void go(start.trim() || '~').catch(() => go('~')) }, [])
@@ -100,6 +102,15 @@ function DirBrowser({ start, onChoose, machine }: { start: string; onChoose(p: s
   const root = listing.roots ? listing.path.slice(0, 3) : '/'
   const crumbs = listing.path.slice(root.length).split(sep).filter(Boolean)
   const join = (d: string) => listing.path.endsWith(sep) ? listing.path + d : listing.path + sep + d
+  // Make the folder and use it: a new project often has no folder yet.
+  const mkdir = async () => {
+    const name = (newName ?? '').trim()
+    if (!name) return
+    try {
+      const r = await api<{ path: string }>('/api/fs/mkdir', 'POST', { parent: listing.path, name }, machine)
+      onChoose(r.path)
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); state.error = null }
+  }
   return (
     <div className="dir-browser">
       <div className="crumbs">
@@ -113,9 +124,23 @@ function DirBrowser({ start, onChoose, machine }: { start: string; onChoose(p: s
         {listing.dirs.map((d) => <button type="button" key={d} onClick={() => void go(join(d))} onDoubleClick={() => onChoose(join(d))}><FolderIcon size={13} /> {d}</button>)}
         {!listing.dirs.length && <div className="muted pad">No subfolders</div>}
       </div>
+      {newName !== null && (
+        <div className="dir-new">
+          <FolderIcon size={13} />
+          <input autoFocus className="mono" value={newName} placeholder="new-folder" aria-label="Name of the new folder"
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); void mkdir() }
+              else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setNewName(null) }
+            }} />
+          <button type="button" className="primary" disabled={!newName.trim()} onClick={() => void mkdir()}>Create and use</button>
+          <button type="button" onClick={() => setNewName(null)}>Cancel</button>
+        </div>
+      )}
       <div className="dir-foot">
         <label className="toggle"><input type="checkbox" checked={hidden} onChange={(e) => { setHidden(e.target.checked); void go(listing.path, e.target.checked) }} /> Hidden folders</label>
         {err && <span className="muted">{err}</span>}
+        {newName === null && <button type="button" onClick={() => { setNewName(''); setErr(null) }} title={`Make a folder in ${shortPath(listing.path, machine)}`}>New folder…</button>}
         <button type="button" className="primary" onClick={() => onChoose(listing.path)}>Use {shortPath(listing.path, machine)}</button>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useEscape } from '../escape.ts'
 import type { ImageRef, PermissionMode, SessionMeta } from '../../../shared/types.ts'
 import { api, currentMachine, globalId, localId, LOCAL, machineList, machineOf, select, setComposer, state } from '../store.ts'
-import { DirPicker } from './DirPicker.tsx'
+import { DirPicker, shortPath } from './DirPicker.tsx'
 import { FlagPicker } from './FlagPicker.tsx'
 import { McpPicker } from './McpDialog.tsx'
 import { SessionPicker } from './SessionPicker.tsx'
@@ -14,7 +14,10 @@ import { ChevronIcon } from './Icons.tsx'
 export function NewSession({ cwd: initial, machine: start = currentMachine(), group, title: initialTitle = '', prompt: initialPrompt = '', onClose }: { cwd: string; machine?: string; group?: string; title?: string; prompt?: string; onClose(): void }) {
   useEscape(onClose)
   const [machine, setMachine] = useState(start)
-  const [cwd, setCwd] = useState(initial)
+  // With no folder given: the machine's default folder (CODINGER_DEFAULT_DIR, else home), as ~/...
+  const startDir = (m: string) => { const d = state.machines[m]?.defaultDir; return d ? shortPath(d, m) : '' }
+  const [startCwd] = useState(() => initial || startDir(start))
+  const [cwd, setCwd] = useState(startCwd)
   const [title, setTitle] = useState(initialTitle)
   const [model, setModel] = useState('')
   const [mode, setMode] = useState<PermissionMode>('auto')
@@ -29,6 +32,9 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   const [busy, setBusy] = useState(false)
   // Whether the typed directory exists; if it doesn't, Create makes it first.
   const [missing, setMissing] = useState(false)
+  // Whether the directory is in a git repository already; if not, you may ask for git init.
+  const [inGit, setInGit] = useState(true)
+  const [gitInit, setGitInit] = useState(false)
   const first = useRef<HTMLDivElement>(null)
   // Model, permissions, flags, MCP servers and parent: under "Advanced settings", above the first message, open or closed as you left it.
   const [advanced, setAdvanced] = useState(() => localStorage.getItem('codinger.newSession.advanced') === '1')
@@ -44,11 +50,11 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   ].filter(Boolean).join(' · ')
 
   useEffect(() => {
-    if (!cwd.trim()) { setMissing(false); return }
+    if (!cwd.trim()) { setMissing(false); setInGit(true); return }
     let live = true
     const t = setTimeout(() => {
-      void api<{ kind: 'dir' | 'file' | 'missing' }>(`/api/fs/stat?path=${encodeURIComponent(cwd)}`, 'GET', undefined, machine)
-        .then((r) => { if (live) setMissing(r.kind === 'missing') }).catch(() => {})
+      void api<{ kind: 'dir' | 'file' | 'missing'; git?: boolean }>(`/api/fs/stat?path=${encodeURIComponent(cwd)}`, 'GET', undefined, machine)
+        .then((r) => { if (live) { setMissing(r.kind === 'missing'); setInGit(r.kind === 'file' || !!r.git) } }).catch(() => {})
     }, 200)
     return () => { live = false; clearTimeout(t) }
   }, [cwd, machine])
@@ -56,7 +62,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   const create = async () => {
     setBusy(true); setErr(null)
     try {
-      const meta = await api<SessionMeta>('/api/sessions', 'POST', { cwd, title, model: model || null, permissionMode: mode, flags, parentId: parentId ? localId(parentId) : null, ...(mcp ? { mcp } : {}), group: machine === start ? group : undefined, mkdir: missing }, machine)
+      const meta = await api<SessionMeta>('/api/sessions', 'POST', { cwd, title, model: model || null, permissionMode: mode, flags, parentId: parentId ? localId(parentId) : null, ...(mcp ? { mcp } : {}), group: machine === start ? group : undefined, mkdir: missing, gitInit: gitInit && !inGit }, machine)
       const id = globalId(machine, meta.id)
       if (prompt.trim() || images.length) await api(`/api/sessions/${id}/send`, 'POST', { parts: [{ kind: 'text', text: prompt, images }] })
       else setComposer(id, { text: '' })
@@ -74,15 +80,17 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
         <h2>New session</h2>
         {machineList().length > 1 && (
           <label>Machine
-            <select value={machine} onChange={(e) => { setMachine(e.target.value); setCwd(''); setParentId(''); setMcp(null); setImages([]) }}>
+            <select value={machine} onChange={(e) => { setMachine(e.target.value); setCwd(startDir(e.target.value)); setParentId(''); setMcp(null); setImages([]) }}>
               {machineList().map((m) => <option key={m.name} value={m.name}>{m.name === LOCAL ? `This machine${state.self ? ` (${state.self})` : ''}` : m.name}</option>)}
             </select>
           </label>
         )}
-        {/* With a folder given (the + on a project), start in the first message: focus on the folder would open its menu. */}
+        {/* With a folder given (the + on a project, or the default folder), start in the first message: focus on the folder would open its menu. */}
         <div className="field">Directory
-          <DirPicker value={cwd} onChange={setCwd} onPick={() => focusField(first.current?.querySelector<HTMLElement>('[contenteditable]'))} autoFocus={!initial} machine={machine} />
+          <DirPicker value={cwd} onChange={setCwd} onPick={() => focusField(first.current?.querySelector<HTMLElement>('[contenteditable]'))} autoFocus={!startCwd} machine={machine} />
         </div>
+        {/* Not offered for your home folder: a repository there would hold everything. */}
+        {!inGit && shortPath(cwd.trim(), machine).replace(/\/$/, '') !== '~' && <label className="settings-check new-git"><input type="checkbox" checked={gitInit} onChange={(e) => setGitInit(e.target.checked)} /> Start a git repository here with <code>git init</code></label>}
         <label>Title <input value={title} placeholder="Defaults to the folder name" onChange={(e) => setTitle(e.target.value)} /></label>
         <button type="button" className="adv-toggle" aria-expanded={advanced} onClick={() => showAdvanced(!advanced)}>
           <span className="adv-label"><ChevronIcon size={12} className={advanced ? 'open' : undefined} />Advanced settings{!advanced && summary && <span className="muted"> · {summary}</span>}</span>
@@ -111,7 +119,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
           </div>
         </>}
         <div className="field" ref={first}>First message (optional)
-          <RichInput value={prompt} onChange={setPrompt} images={images} onImages={setImages} onSubmit={() => void create()} minRows={4} machine={machine} autoFocus={!!initial} uploadDir={cwd} />
+          <RichInput value={prompt} onChange={setPrompt} images={images} onImages={setImages} onSubmit={() => void create()} minRows={4} machine={machine} autoFocus={!!startCwd} uploadDir={cwd} />
         </div>
         {err && <div className="notice error">{err}</div>}
         <div className="modal-actions">
