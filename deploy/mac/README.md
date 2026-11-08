@@ -41,3 +41,7 @@ Notes:
   sessions on, and launchd starts the next one; `run.sh` builds the page first. Sessions and
   tasks run in their own process groups, so they outlive the server.
 - Logs: `~/.codinger/launchd.log`, `~/.codinger/server.log`.
+- A page that a server on the Mac serves (a dev server, a backend): an agent's `show_artifact`
+  with its localhost url shares the port on the tailnet with `tailscale serve --https=91xx`,
+  through a small proxy that names the host as localhost (server/ports.ts). The share ends
+  when the server stops listening. `tailscale serve status` lists them.

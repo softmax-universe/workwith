@@ -29,6 +29,7 @@ import { notesDir, notesNow, notesPath, readNotes, resumeKeepWarm, startNotes } 
 import { notesFile } from '../shared/notes.ts'
 import { flagProblem } from '../shared/flags.ts'
 import { autoTitle } from './describe.ts'
+import { canShare, sharePort, startPortShares } from './ports.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
@@ -304,7 +305,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -821,7 +822,7 @@ watchArtifacts(() => broadcast(artifactsMsg()))
 function artifactTool(id: string): Tool {
   return {
     name: 'show_artifact',
-    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves; that works only in a browser on this machine, not for a user on another one.',
+    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url (http://localhost:<port>/...) to show a page that a server on this machine serves; behind tailscale serve the desk shares the port on the tailnet so the browser of the user reaches it, else it works only in a browser on this machine.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The artifact\'s folder name' }, url: { type: 'string', description: 'Instead: http://localhost:<port>/...' } } },
     run: async (args) => {
       const s = get(id)
@@ -829,6 +830,14 @@ function artifactTool(id: string): Tool {
         let u: URL
         try { u = new URL(String(args.url)) } catch { return 'Give a full address, like http://localhost:5173/.' }
         if (!/^https?:$/.test(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return 'Only pages on this machine (localhost) show in the pane.'
+        // Behind tailscale serve: the port shared on the tailnet, which the user's browser reaches (server/ports.ts).
+        if (canShare()) {
+          const r = await sharePort(Number(u.port || (u.protocol === 'https:' ? 443 : 80)))
+          if ('error' in r) return r.error
+          const at = r.url + u.pathname + u.search + u.hash
+          broadcast({ type: 'preview', sessionId: id, target: { url: at }, at: Date.now() })
+          return `Shown in the preview pane at ${at}, an address on the user's tailnet that reaches port ${u.port} here. Give the user that address, not localhost. The share ends when the server stops listening.`
+        }
         broadcast({ type: 'preview', sessionId: id, target: { url: u.href }, at: Date.now() })
         // The pane loads it in the user's browser, whose localhost is this machine's only on this machine.
         if (PROXIED) return `Sent to the preview pane: ${u.href}. But the user's browser is on another machine, where this address does not reach this machine, so the pane is probably empty. Show a screenshot instead, or make an artifact.`
@@ -2007,6 +2016,7 @@ server.keepAliveTimeout = 150_000
 server.headersTimeout = 155_000
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Codinger on http://localhost:${PORT}${DEV ? ' (dev)' : ''}`)
+  startPortShares()
   startRemote(PORT, artifactsPort, (remote) => broadcast({ type: 'remote', remote }))
   startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }) })
   findDevice((device) => broadcast({ type: 'device', device }))
