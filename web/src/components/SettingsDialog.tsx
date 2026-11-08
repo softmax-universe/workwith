@@ -40,9 +40,9 @@ type Blame = { path: string; exists: boolean; text: string; lines: number[]; ver
 const who = (by: By) =>
   by.kind === 'initial' ? 'First seen'
   : by.kind === 'settings' ? 'You, in Settings'
-  : by.kind === 'session' ? `Codinger session "${by.title}"`
+  : by.kind === 'session' ? `workwith session "${by.title}"`
   : by.kind === 'claude' ? `Claude Code in ${shortPath(by.cwd)}`
-  : 'Outside Codinger'
+  : 'Outside workwith'
 
 export function SettingsDialog({ onClose }: { onClose(): void }) {
   const st = useStore()
@@ -128,7 +128,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
             </div>
             <div className="settings-group">
               <h3 className="cost-h">New sessions</h3>
-              <label className="settings-check" data-tip="New sessions get only Codinger's tools, also when a server is on for every new session in the MCP dialog. The MCP chip or Claude turns servers on. When this is off, new sessions start with the servers on for every new session. Current sessions do not change.">
+              <label className="settings-check" data-tip="New sessions get only workwith's tools, also when a server is on for every new session in the MCP dialog. The MCP chip or Claude turns servers on. When this is off, new sessions start with the servers on for every new session. Current sessions do not change.">
                 <input type="checkbox" checked={st.settings.mcpStartOff !== false} onChange={(e) => void api('/api/settings', 'PUT', { mcpStartOff: e.target.checked })} />
                 Start new sessions with my MCP servers off
               </label>
@@ -184,11 +184,11 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
                   <option value="never">Never</option>
                 </select>
               </label>
-              <label className="settings-check" title="For work on Codinger itself: a banner offers a server restart">
+              <label className="settings-check" title="For work on workwith itself: a banner offers a server restart">
                 <input type="checkbox" checked={!!st.settings.selfRestart} onChange={(e) => void api('/api/settings', 'PUT', { selfRestart: e.target.checked })} />
-                Offer to restart when Codinger's code changes
+                Offer to restart when workwith's code changes
               </label>
-              <label className="settings-check" title="After a crash or a forced stop of the server. A restart from Codinger keeps a working session working anyway.">
+              <label className="settings-check" title="After a crash or a forced stop of the server. A restart from workwith keeps a working session working anyway.">
                 <input type="checkbox" checked={!!st.settings.resumeCut} onChange={(e) => void api('/api/settings', 'PUT', { resumeCut: e.target.checked })} />
                 Go on with turns that a server stop cut short
               </label>
@@ -215,7 +215,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
               </div>
             </nav>
             <section className="file-pane">
-              {stale && <div className="empty">Codinger's server is older than this page, so it has no file history yet. Restart Codinger, then open Settings again.</div>}
+              {stale && <div className="empty">workwith's server is older than this page, so it has no file history yet. Restart workwith, then open Settings again.</div>}
               {blame && <>
                 <div className="file-tabs">
                   {(['read', 'edit', 'history'] as const).map((t) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}

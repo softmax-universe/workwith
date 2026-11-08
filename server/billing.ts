@@ -14,10 +14,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { DATA } from './store.ts'
+import { codingerEnv } from './oldenv.ts'
 
 const env = process.env
 const FILE = path.join(DATA, 'billing.json')
-export const FALLBACK = (env.CODINGER_BILLING ?? env.CODINER_BILLING) === 'fallback'
+export const FALLBACK = codingerEnv('BILLING') === 'fallback'
 const PROVIDER = !!(env.CLAUDE_CODE_USE_BEDROCK || env.CLAUDE_CODE_USE_VERTEX)
 // What the provider needs that the plan must not see: the switch itself and its model ids.
 const PROVIDER_VARS = /^(CLAUDE_CODE_USE_(BEDROCK|VERTEX)|ANTHROPIC_MODEL|ANTHROPIC_DEFAULT_\w+_MODEL(_NAME)?|ANTHROPIC_SMALL_FAST_MODEL|ANTHROPIC_BEDROCK_BASE_URL|ANTHROPIC_VERTEX_\w+)$/
@@ -90,7 +91,7 @@ export function signedIn() {
 
 function alert(text: string) {
   console.log(`[billing] ${text}`)
-  const cmd = env.CODINGER_ALERT_CMD ?? env.CODINER_ALERT_CMD
+  const cmd = codingerEnv('ALERT_CMD')
   if (!cmd) return
   const p = spawn('/bin/sh', ['-c', cmd], { env: { ...env, CODINGER_ALERT_TEXT: text }, stdio: 'ignore', detached: true })
   p.on('error', (e) => console.error('[billing] alert failed:', e.message))

@@ -34,7 +34,7 @@ function show(share: Share) {
   // The owner's colours and font; light or dark as the reader's system is.
   const r = document.documentElement
   for (const k of ['accent', 'surface', 'font'] as const) if (share[k] && share[k] !== 'custom') r.dataset[k] = share[k]
-  document.title = `${share.title} · Codinger`
+  document.title = `${share.title} · workwith`
   changed()
 }
 
@@ -49,7 +49,7 @@ function Page() {
     <div className="share-page">
       <header className="share-head">
         <h1>{share.title}</h1>
-        <span className="muted">{preview ? 'Preview: what readers will see' : <>A conversation with an agent in <a href="https://codinger.app" target="_blank" rel="noreferrer">Codinger</a>, through Claude Code · {when}</>}</span>
+        <span className="muted">{preview ? 'Preview: what readers will see' : <>A conversation with an agent in <a href="https://github.com/softmax-universe/workwith" target="_blank" rel="noreferrer">workwith</a>, through Claude Code · {when}</>}</span>
       </header>
       <Transcript sid={SID} />
     </div>

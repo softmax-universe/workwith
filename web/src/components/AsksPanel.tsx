@@ -27,7 +27,7 @@ export function AsksPanel({ onClose }: { onClose(): void }) {
   const session = (sid: string, title?: string) => <button className="link" onClick={() => { onClose(); select(globalId(m, sid)) }}>{title ?? sid}</button>
   if (!r) return err ? <div className="notice error">{err}</div> : null
   return <>
-    <p className="muted">Questions that sessions send to your phone as push notifications. A scheduled ask goes each day at its time, while Codinger runs on this machine. Your answer is your next message in that session.</p>
+    <p className="muted">Questions that sessions send to your phone as push notifications. A scheduled ask goes each day at its time, while workwith runs on this machine. Your answer is your next message in that session.</p>
     {err && <div className="notice error">{err}</div>}
     <h3 className="cost-h">Scheduled</h3>
     {r.schedules.length ? <table className="mcp-table cost-table">

@@ -21,6 +21,7 @@ import { AUTH_ERROR, CLAUDE, childEnv } from './auth.ts'
 import { LIMIT_ERROR, modelFor, onPlan, sessionEnv } from './billing.ts'
 import { entryBefore } from './history.ts'
 import { Proc } from './proc.ts'
+import { codingerEnv } from './oldenv.ts'
 import { keepMediaIn } from './media.ts'
 import { addSpend, costOf } from '../shared/prices.ts'
 import { appendEvent, imageFile, knownWindow, learnModel, learnWindow, promptFile, readEvents, writeEvents } from './store.ts'
@@ -48,7 +49,7 @@ export const claudeName = (id: string) => `codinger-${id}`
 const MAX_RESULT = 8000
 // How long a finished session keeps its claude process before it sleeps.
 // CODINGER_SLEEP_MS overrides it (for tests).
-const IDLE_SLEEP_MS = Number(process.env.CODINGER_SLEEP_MS ?? process.env.CODINER_SLEEP_MS) || 5 * 60_000
+const IDLE_SLEEP_MS = Number(codingerEnv('SLEEP_MS')) || 5 * 60_000
 
 // A message that is only a slash command goes in as one, as if typed at the claude prompt;
 // nothing hidden goes with it.

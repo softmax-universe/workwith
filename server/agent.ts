@@ -38,10 +38,9 @@ import type http from 'node:http'
 import { billingState } from './billing.ts'
 import type { AgentInfo, Person } from '../shared/types.ts'
 import { parseBase } from './base.ts'
+import { codingerEnv } from './oldenv.ts'
 
-const env = process.env
-// Codinger was called Codiner until October 2026; the old names (CODINER_*) still work.
-export const desk = (key: string): string | undefined => env[`CODINGER_${key}`] ?? env[`CODINER_${key}`]
+export const desk = codingerEnv
 const existing = (file: string | undefined) => file && fs.existsSync(file) ? file : null
 const NAME = desk('AGENT_NAME')
 // A named desk without a face of its own wears the workwith logo (assets/, with its sized copies).
@@ -105,7 +104,7 @@ function iconSize(file: string): string {
 
 // What makes the page installable as an app: the agent's name and its face as the icon.
 function manifest() {
-  const name = NAME ?? 'Codinger'
+  const name = NAME ?? 'workwith'
   const color = desk('AGENT_COLOR') ?? '#1d1c1a'
   return {
     name: NAME ? `Work with ${name}` : name, short_name: name,
@@ -153,8 +152,9 @@ export function agentPage(html: string, origin: string): string {
   if (!NAME) return html
   const name = attr(NAME)
   const about = attr(ABOUT ?? `${NAME}'s desk: work with ${NAME} here.`)
-  html = html.replace('<title>Codinger</title>', `<title>Work with ${name}</title>`)
-    .replace('<meta name="apple-mobile-web-app-title" content="Codinger" />', `<meta name="apple-mobile-web-app-title" content="${name}" />`)
+  html = html.replace('<title>workwith</title>', `<title>Work with ${name}</title>`)
+    .replace(/ *<!-- preview:[^]*?<!-- \/preview -->\n/, '')
+    .replace('<meta name="apple-mobile-web-app-title" content="workwith" />', `<meta name="apple-mobile-web-app-title" content="${name}" />`)
   const color = desk('AGENT_COLOR')
   if (color) html = html.replace('<meta name="theme-color" content="#1d1c1a" />', `<meta name="theme-color" content="${attr(color)}" />`)
   const tags = [

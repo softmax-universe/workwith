@@ -37,11 +37,11 @@ export async function connectUrl(redirectUri: string): Promise<string> {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        client_name: 'Codinger', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none',
+        client_name: 'workwith', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none',
         grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       }),
     })
-    if (!r.ok) throw new Error(`Prolifica refused to register Codinger: ${r.status} ${await r.text()}`)
+    if (!r.ok) throw new Error(`Prolifica refused to register workwith: ${r.status} ${await r.text()}`)
     conn = { origin: ORIGIN, clientId: (await r.json()).client_id, redirectUri }
     save()
   }
@@ -66,7 +66,7 @@ async function tokens(body: Record<string, string>) {
 // The browser came back from approving (or declining): finish the connection.
 export async function connectCallback(url: URL): Promise<void> {
   const p = pending.get(url.searchParams.get('state') ?? '')
-  if (!p || !conn) throw new Error('This connection was not started here, or it is too old. Start it again from Codinger.')
+  if (!p || !conn) throw new Error('This connection was not started here, or it is too old. Start it again from workwith.')
   pending.delete(url.searchParams.get('state')!)
   if (url.searchParams.get('error')) throw new Error(url.searchParams.get('error_description') ?? 'You declined.')
   await tokens({ grant_type: 'authorization_code', code: url.searchParams.get('code') ?? '', redirect_uri: p.redirectUri, client_id: conn.clientId, code_verifier: p.verifier, resource: `${ORIGIN}/mcp` })
@@ -122,7 +122,7 @@ function counted(b: Uint8Array, onSent: (sent: number) => void): ReadableStream<
 }
 
 async function request(p: string, init: RequestInit = {}, onSent?: (sent: number) => void): Promise<Response> {
-  if (!conn?.access) throw new Error('Codinger is not connected to Prolifica.')
+  if (!conn?.access) throw new Error('workwith is not connected to Prolifica.')
   const b = onSent && init.body instanceof Uint8Array ? init.body : null
   const go = async () => {
     for (let tries = 1; ; tries++) {

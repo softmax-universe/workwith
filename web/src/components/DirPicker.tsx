@@ -70,7 +70,7 @@ export function DirPicker({ value, onChange, onPick, autoFocus, machine = curren
           {shown.map((d, i) => (
             <button type="button" key={d.path} className={i === index ? 'on' : ''} onMouseEnter={() => setIndex(i)} onClick={() => choose(d.path)}>
               <span className="mono">{shortPath(d.path, machine)}</span>
-              <span className="muted">{d.source === 'claude' ? 'Claude Code' : d.source === 'both' ? 'Codinger · Claude Code' : 'Codinger'} · {timeAgo(d.ts)}</span>
+              <span className="muted">{d.source === 'claude' ? 'Claude Code' : d.source === 'both' ? 'workwith · Claude Code' : 'workwith'} · {timeAgo(d.ts)}</span>
             </button>
           ))}
         </div>

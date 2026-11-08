@@ -133,8 +133,8 @@ export function CostPanel() {
             <td>{r.usd ? cents(r.cost / r.usd) : '–'}</td><td>{r.prompts ? cents(r.cost / r.prompts) : '–'}</td><td>{itc != null && r.cost ? util(r.usd * itc / r.cost * 100) : '–'}</td>
           </tr>)}</tbody>
         </table>}
-        {c.scanning && <p className="muted cost-note">Codinger is still reading your transcripts. The numbers will go up.</p>}
-        {c.since && <p className="muted cost-note">The record starts on {fmtDay(c.since)}. Claude Code deletes transcripts after 30 days, so Codinger keeps its own record and a copy of the transcripts.</p>}
+        {c.scanning && <p className="muted cost-note">workwith is still reading your transcripts. The numbers will go up.</p>}
+        {c.since && <p className="muted cost-note">The record starts on {fmtDay(c.since)}. Claude Code deletes transcripts after 30 days, so workwith keeps its own record and a copy of the transcripts.</p>}
       </div>}
 
       <UsageAudit price={price} weekCeil={weekCeil} />
@@ -146,8 +146,8 @@ export function CostPanel() {
             A full week of your plan is about {money(weekCeil)} of API work{fiveCeil ? `, and a full 5-hour window about ${money(fiveCeil)}` : ''}.
             If you used all of it, each API dollar would cost you about {cents(price / (weekCeil * 52 / 12))}.
           </p>
-          <p className="muted cost-note">Codinger estimates the limits from {rate?.pairs ?? 0} measurements of the last 3 days: it compares spend at API prices with how far the percentages move. The estimate gets better as you use Claude Code.</p>
-        </> : <p className="muted cost-note">Codinger does not know your limits in dollars yet. It learns them as you use Claude Code.</p>}
+          <p className="muted cost-note">workwith estimates the limits from {rate?.pairs ?? 0} measurements of the last 3 days: it compares spend at API prices with how far the percentages move. The estimate gets better as you use Claude Code.</p>
+        </> : <p className="muted cost-note">workwith does not know your limits in dollars yet. It learns them as you use Claude Code.</p>}
       </div>
 
       {months.length > 0 && <Reviews title="Monthly reviews" ps={months.map((m) => review('month', m, c, price!, tier))} tier={tier} tot={tot} price={price} itc={itc} since={c.since} />}
@@ -178,7 +178,7 @@ function PriceForm({ c }: { c: CostsReply }) {
     <div>
       <h3 className="cost-h">Your plan</h3>
       <p className="cost-line">
-        {c.plan ? <>Claude Code is logged in to <b>{c.plan.label}</b>. Its list price is {money(c.plan.usd)} a month.</> : <>Codinger can not tell your plan from Claude Code's login. Type what you pay.</>}
+        {c.plan ? <>Claude Code is logged in to <b>{c.plan.label}</b>. Its list price is {money(c.plan.usd)} a month.</> : <>workwith can not tell your plan from Claude Code's login. Type what you pay.</>}
       </p>
       <label className="settings-check cost-pay">
         You pay $

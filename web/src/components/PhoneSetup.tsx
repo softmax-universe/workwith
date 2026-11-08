@@ -29,7 +29,7 @@ export function PhoneSetup() {
   const hide = () => { localStorage.setItem(KEY, String(Date.now())); setLater(true) }
   if (ios() && !standalone()) return (
     <div className="signin restart">
-      <span>Add Codinger to your Home Screen to get notifications on this phone: tap Share, then Add to Home Screen, then open Codinger from there.</span>
+      <span>Add workwith to your Home Screen to get notifications on this phone: tap Share, then Add to Home Screen, then open workwith from there.</span>
       <span className="banner-btns"><button onClick={hide}>Later</button></span>
     </div>
   )

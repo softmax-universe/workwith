@@ -514,7 +514,7 @@ function viaCodinger(e: Extract<Event, { t: 'user' }>, tasks: Task[]): string {
   const ids = taskIdsOf(e)
   const t = tasks.find((x) => ids.has(x.id))
   return t?.notify === 'interrupt' ? 'The agent asked to be interrupted with a message when this task ended.'
-    : t?.notify === 'next' ? 'Codinger told the agent with a message when this task ended.'
+    : t?.notify === 'next' ? 'workwith told the agent with a message when this task ended.'
     : 'The agent asked to be told with a message when this task ended.'
 }
 
