@@ -25,6 +25,7 @@ import { codingerEnv } from './oldenv.ts'
 import { keepMediaIn } from './media.ts'
 import { addSpend, costOf } from '../shared/prices.ts'
 import { appendEvent, imageFile, knownWindow, learnModel, learnWindow, promptFile, readEvents, writeEvents } from './store.ts'
+import { gapNote, lastSaid } from '../shared/gap.ts'
 
 export type Hooks = {
   meta(s: Session): void
@@ -332,6 +333,10 @@ export class Session {
       if (!file || !fs.existsSync(file)) return
       content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: fs.readFileSync(file).toString('base64') } })
     }
+    // After a long quiet, Claude hears how long it was and what time it is now.
+    const quiet = lastSaid(this.getEvents())
+    const gap = quiet == null ? null : gapNote(Date.now() - quiet)
+    if (gap) addText(gap)
     for (const p of parts) {
       // A long paste goes to Claude as the text it was; images pasted into the text go where they sit in it.
       for (const c of splitPastes(partText(p))) {

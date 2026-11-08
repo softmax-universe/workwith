@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { Anchor, Block, Event, ImageRef, Part, Task } from '../../../shared/types.ts'
 import { addDraft, agentName, api, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
@@ -9,6 +9,7 @@ import { AssistantMessage, type Reaction } from './AssistantMessage.tsx'
 import { focusField, RichInput, Thumbs } from './Inputs.tsx'
 import { foldItems, revealItem, trackItems, type TrackedItem } from '../items.ts'
 import { itemsOf } from '../../../shared/blocks.ts'
+import { gapText, lastSaid } from '../../../shared/gap.ts'
 import { isReaction } from '../emoji.ts'
 import { ARTIFACT_QUOTE_WORDS, splitQuote } from '../../../shared/asks.ts'
 import { highlight, langOfPath } from '../highlight.ts'
@@ -79,6 +80,12 @@ export function Transcript({ sid }: { sid: string }) {
   const drafted = draftsOf(sid).flatMap((d) => d.kind === 'note' ? [d.anchor.msg] : []).sort().join(' ')
   const steps = useMemo(() => st.showSteps ? new Set<string>() : interim(events ?? [], base, new Set(drafted.split(' '))), [events, base, drafted, st.showSteps])
   const groups = useMemo(() => group(events ?? [], base, steps), [events, base, steps])
+  // "3 hours later" above a message sent after a long quiet (shared/gap.ts).
+  const gaps = useMemo(() => new Map((events ?? []).flatMap((e, i) => {
+    const last = e.t === 'user' ? lastSaid(events!, i) : null
+    const t = last == null ? null : gapText(e.ts - last)
+    return t ? [[e.seq, t] as const] : []
+  })), [events])
   const scroller = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const column = useRef<HTMLDivElement>(null)
@@ -324,7 +331,10 @@ export function Transcript({ sid }: { sid: string }) {
       <div className={`transcript-inner${gutter ? ' gutter' : ''}`} ref={inner}>
         <div className="column" ref={column}>
           {groups.map((g, i) => g.kind === 'one'
-            ? <ItemView key={g.item.key} sid={sid} item={g.item} f={folded} />
+            ? <Fragment key={g.item.key}>
+                {gaps.has(g.item.e.seq) && <div className="time-gap" title={new Date(g.item.e.ts).toLocaleString()}>{gaps.get(g.item.e.seq)}</div>}
+                <ItemView sid={sid} item={g.item} f={folded} />
+              </Fragment>
             : <Activity key={g.items[0].key} sid={sid} items={g.items} f={folded} live={i === groups.length - 1 && meta?.status === 'working'} />)}
           {streaming && <AssistantMessage sid={sid} msg="live" text={streaming} live />}
           {meta?.status === 'working' && !streaming && <WorkingDots />}
