@@ -1170,7 +1170,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       let err = ''
       try { await connectCallback(url) } catch (e) { err = (e as Error).message }
       artifactsChanged()
-      const text = err ? `Codinger could not connect to Prolifica: ${err}` : 'Codinger is connected to Prolifica. You can close this tab.'
+      const text = err ? `workwith could not connect to Prolifica: ${err}` : 'workwith is connected to Prolifica. You can close this tab.'
       res.writeHead(err ? 400 : 200, { 'content-type': 'text/html; charset=utf-8' })
         .end(`<!doctype html><meta charset="utf-8"><title>Prolifica</title><body style="font:15px system-ui;padding:40px">${text.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`)}${err ? '' : '<script>setTimeout(()=>close(),1500)</script>'}`)
       return
@@ -1188,7 +1188,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (a === 'update' && NO_SHELL) throw new HttpError(403, 'Updates are off here (CODINGER_NO_SHELL)')
   if (a === 'update' && method === 'POST' && id === 'now') return send(res, 200, await updateNow())
   if (a === 'update' && method === 'POST' && id === 'agent') {
-    const s = createSession({ cwd: ROOT, title: 'Update Codinger' })
+    const s = createSession({ cwd: ROOT, title: 'Update workwith' })
     deliver(s, [{ kind: 'text', text: updatePrompt() }])
     return send(res, 200, s.meta)
   }
@@ -1627,7 +1627,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // What this person is writing now, as they write it: everyone sees it (meta.live).
     case 'live': {
       const me = personOf(req)
-      if (!me) throw new HttpError(400, 'Codinger does not know who you are')
+      if (!me) throw new HttpError(400, 'workwith does not know who you are')
       const rev = Number(body.rev)
       // A copy from before a send that already took it.
       if (!(rev > (taken.get(`${s.meta.id} ${me.login}`) ?? 0))) return send(res, 200, { ok: true, stale: true })
@@ -1764,7 +1764,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'Codinger only answers requests from its own page')
+    if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'workwith only answers requests from its own page')
     // Under CODINGER_BASE the page is at <base>/, so its service worker can have that scope.
     if (BASE && req.url === BASE) { res.writeHead(308, { location: BASE + '/' }).end(); return }
     req.url = underBase(BASE, req.url ?? '/')

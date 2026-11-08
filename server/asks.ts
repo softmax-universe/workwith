@@ -48,7 +48,7 @@ const clock = (ts: number) => new Date(ts).toLocaleString('en-US', { weekday: 's
 const noPush = (why: string) => new Error(`No push went: ${why}. Ask the user to link this machine to the hub and to turn on notifications in Codinger's Settings, in the app on the phone's home screen.`)
 
 async function ask(sid: string, question: string, then?: string) {
-  const title = ctx.session(sid)?.title ?? 'Codinger'
+  const title = ctx.session(sid)?.title ?? 'workwith'
   const why = await ctx.push({ title, body: question, session: sid })
   if (why) throw noPush(why)
   update((s) => { s.open = [...s.open.filter((o) => o.sid !== sid || Date.now() - o.ts < 7 * 86400_000), { sid, question, ts: Date.now(), ...(then ? { then } : {}) }] })
@@ -100,7 +100,7 @@ export function askTools(id: string): Tool[] {
       run: async ({ body, title }) => {
         const b = String(body ?? '').trim()
         if (!b) throw new Error('Give a body')
-        const why = await ctx.push({ title: String(title ?? '').trim() || (ctx.session(id)?.title ?? 'Codinger'), body: b, session: id })
+        const why = await ctx.push({ title: String(title ?? '').trim() || (ctx.session(id)?.title ?? 'workwith'), body: b, session: id })
         if (why) throw noPush(why)
         return 'Sent.'
       },

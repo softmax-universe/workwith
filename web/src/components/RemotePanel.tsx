@@ -20,7 +20,7 @@ export function RemotePanel() {
         </div>
       ))}
       {!knownMachines().length && <p>No machines yet.</p>}
-      <p className="muted">To add a machine, open Settings → Remote access in the Codinger on that machine.</p>
+      <p className="muted">To add a machine, open Settings → Remote access in the workwith on that machine.</p>
       <form method="post" action="/_remote/logout"><button>Sign out</button></form>
     </div>
   )

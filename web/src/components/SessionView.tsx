@@ -89,7 +89,7 @@ function IdChip({ m }: { m: SessionMeta }) {
   const [copied, setCopied] = useState(false)
   const name = `codinger-${localId(m.id)}`
   const copy = () => { void navigator.clipboard.writeText(name); setCopied(true); setTimeout(() => setCopied(false), 1200) }
-  return <button className="link mono head-id" title={`Codinger session ${localId(m.id)}\nClaude Code: name ${name}, session ${m.claudeSessionId}\nClick to copy the name`} onClick={copy}>{copied ? 'copied' : name}</button>
+  return <button className="link mono head-id" title={`workwith session ${localId(m.id)}\nClaude Code: name ${name}, session ${m.claudeSessionId}\nClick to copy the name`} onClick={copy}>{copied ? 'copied' : name}</button>
 }
 
 export function SessionHeader({ m, extra }: { m: SessionMeta; extra?: React.ReactNode }) {
@@ -238,7 +238,7 @@ function SessionMenu({ m, open, setOpen, onPublish }: { m: SessionMeta; open: Me
     worker && <button key="publish" onClick={act(onPublish)}>{m.share ? 'Published transcript' : 'Publish transcript'}</button>,
     worker && !m.archived && <button key="close" title="Archive session" onClick={act(() => closeSession(m.id))}>Close</button>,
     worker && m.archived && <button key="reopen" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { archived: false }))}>Reopen</button>,
-    worker && m.archived && <button key="delete" className="danger" title="Remove from Codinger (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from Codinger? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,
+    worker && m.archived && <button key="delete" className="danger" title="Remove from workwith (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from workwith? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,
   ].filter(Boolean)
   // Press, drag to an item and release to choose it, as in a native menu. A press opens the
   // menu; a release over an item clicks it, a release away from the menu closes it, and a
@@ -615,7 +615,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
             <b>The prompt cache expired {minutes(-(cache.left ?? 0))} ago.</b> This message writes {kTokens(m.context.used)} tokens to the cache again.{' '}
             That costs about <button className="link" title="Show as dollars or % of 5-hour or weekly limit" onClick={toggleMoney}><b>{moneyLong(cache.dollars.cold)}</b></button>
             {state.money !== 'usd' && shareOf(cache.dollars.cold) != null && limitLeft() != null && <> ({pct(limitLeft()!)} left)</>}, about {cache.times}× a message sent while the cache is warm ({moneyLong(cache.dollars.warm)}).
-            {state.money !== 'usd' && shareOf(cache.dollars.cold) == null && <> Codinger is still measuring how much of your usage limit that is.</>}
+            {state.money !== 'usd' && shareOf(cache.dollars.cold) == null && <> workwith is still measuring how much of your usage limit that is.</>}
           </span>
           <button className="primary" disabled={sending} onClick={() => void send(true)}>Send anyway</button>
         </div>
