@@ -40,7 +40,11 @@ const PLACE: [RegExp, number][] = [
   [/(^|\/)appicon\.appiconset\//, 50], [/(^|\/)src-tauri\/icons\//, 45], [/(^|\/)mipmap-xxxhdpi\//, 48], [/(^|\/)mipmap-xxhdpi\//, 46], [/(^|\/)mipmap-[a-z]+\//, 40],
 ]
 const NEAR = /(^|\/)(public|static|assets|res|resources|build|app|images|img|media|branding|brand|art|\.github|_static|www|web)\//
-const OTHERS = /github|gitlab|bitbucket|twitter|x-logo|discord|slack|google|facebook|meta-|microsoft|windows|npm|docker|linkedin|youtube|reddit|stripe|paypal|spinner|loading|loader|arrow|chevron|caret|close|menu|search|check|plus|minus|social|shield|sponsor|powered|built-?with|vercel|netlify|react|vue|angular|svelte|vite|nextjs|tailwind|placeholder|avatar|user|empty|error|warning|info/
+// Words of a name (my-logo, myLogo, my_logo.dark) that make it another brand's image, or a UI icon. A
+// logo with a UI word is still a logo (acme_plus_logo).
+const BRANDS = /^(github|gitlab|bitbucket|twitter|discord|slack|google|facebook|meta|microsoft|windows|npm|docker|linkedin|youtube|reddit|stripe|paypal|vercel|netlify|react|vue|angular|svelte|vite|nextjs|next|tailwind|powered|sponsor|sponsors|social)$/
+const UI = /^(spinner|loading|loader|arrow|chevron|caret|close|menu|search|check|plus|minus|shield|placeholder|avatar|user|empty|error|warning|info|edit|delete|trash|add|remove|settings|home|back|left|right|up|down)$/
+const wordsOf = (name: string) => name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
 
 type Found = { file: string; score: number }
 
@@ -57,7 +61,8 @@ function score(dir: string, file: string, many: boolean): number {
   let s = NAMED.find(([re]) => re.test(name))?.[1] ?? 0
   s = Math.max(s, PLACE.find(([re]) => re.test(rel))?.[1] ?? 0)
   if (!s) return 0
-  if (OTHERS.test(name)) s -= 60
+  const words = wordsOf(path.basename(file).replace(/\.[^.]+$/, ''))
+  if (words.some((w) => BRANDS.test(w)) || (!/logo/.test(name) && words.some((w) => UI.test(w)))) s -= 60
   if (many && !PLACE.some(([re]) => re.test(rel))) s -= 40
   if (NEAR.test(rel)) s += 5
   // A build's copy counts only when the source has none.

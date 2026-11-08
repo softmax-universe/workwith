@@ -85,6 +85,7 @@ test('a library: the logo at the top of its README', () => {
 
 test('a logo or a mascot by name; images of other brands and of the UI do not count', () => {
   assert.equal(found(repo('mascot', { 'images/MyMascot.png': 256, 'images/twitter-logo.png': 256 })), 'images/MyMascot.png')
+  assert.equal(found(repo('plus', { 'theme/img/acme_plus_logo_black.svg': svg, 'theme/img/close-icon.svg': svg })), 'theme/img/acme_plus_logo_black.svg')
   assert.equal(found(repo('ui', { 'src/icons/github-icon.svg': svg, 'src/icons/search-icon.svg': svg, 'src/img/arrow.png': 64 })), null)
 })
 
