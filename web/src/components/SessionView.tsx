@@ -4,6 +4,7 @@ import { MAX_RUN } from '../../../shared/mail.ts'
 import { agentName, api, archiveAsksOf, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, senders, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
 import { fatigue, kTokens } from '../util.ts'
 import { Mascot, STATUS_LABEL } from './Mascot.tsx'
+import { SessionFace } from './ProjectIcon.tsx'
 import { dragToGroup } from './Sidebar.tsx'
 import { RichInput } from './Inputs.tsx'
 import { Who } from './Who.tsx'
@@ -121,7 +122,7 @@ export function SessionHeader({ m, extra }: { m: SessionMeta; extra?: React.Reac
     <header ref={head} className={`session-head${narrow ? ' narrow' : ''}${more ? ' head-open' : ''}`}>
       {/* Drag it onto a group in the sidebar to move the session there. */}
       <span className="head-critter" onPointerDown={(e) => dragToGroup(e, m)}>
-        <Mascot status={m.status} look={m.look} fatigue={fatigue(m.context.used, m.context.window)} size={44} title={STATUS_LABEL[m.status]} child={!!m.parentId} review={!!m.pendingReviews} starred={m.starred} />
+        <SessionFace s={m} size={44} title={STATUS_LABEL[m.status]} />
       </span>
       <div className="head-main">
         {editing

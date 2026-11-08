@@ -2,7 +2,7 @@
 // Components re-render on any change; at this scale that's plenty.
 
 import { useSyncExternalStore } from 'react'
-import type { AgentInfo, Anchor, ArtifactAnchor, AuthState, Event, ImageRef, InboxItem, Live, Part, Person, RemoteStatus, ServerMsg, SessionMeta, Settings, Task, Usage } from '../../shared/types.ts'
+import type { AgentInfo, Anchor, ArtifactAnchor, AuthState, Event, ImageRef, ClientMsg, InboxItem, Live, Part, Person, RemoteStatus, ServerMsg, SessionMeta, Settings, Task, Usage } from '../../shared/types.ts'
 import type { RemoteMachine } from '../../shared/remote.ts'
 import type { UpdateStatus } from '../../shared/update.ts'
 import { inboxParts } from '../../shared/inbox.ts'
@@ -97,6 +97,7 @@ type State = {
   agent: AgentInfo | null            // Codinger is this agent's desk (server/agent.ts)
   me: Person | null                  // who this browser is, as the proxy says
   people: Person[]                   // who has the page open now (server: 'people')
+  viewing: Record<string, string[]>  // the sessions each of them has open on a page in view, by login
   askName: boolean                   // nobody says: ask this browser's person for a name (CODINGER_ASK_NAME)
   billing: 'api' | 'plan'            // 'api': billed per token, so no plan limits to show
   billingNote: string | null         // per token for now, though the desk has a plan: why
@@ -185,6 +186,7 @@ export const state = {
   me: null,
   askName: false,
   people: [],
+  viewing: {},
   billing: 'plan',
   billingNote: null,
   seenAt: null,
@@ -308,6 +310,7 @@ export function changed() {
   for (const l of listeners) l()
   reportDrafting()
   reportLive()
+  reportViewing()
   clearTimeout(persistTimer)
   persistTimer = window.setTimeout(() => {
     localStorage.setItem(mine('codinger.drafts'), JSON.stringify(state.drafts))
@@ -468,6 +471,19 @@ export async function start() {
 }
 
 const sockets = new Map<string, WebSocket>()
+// This server is told which of its sessions the page shows while the page is in view, so the others
+// see who is in a session now. Only when it knows people apart (state.me).
+let viewSent: string | null | undefined
+function reportViewing() {
+  const ws = sockets.get(LOCAL)
+  if (!ws || ws.readyState !== WebSocket.OPEN || !state.me) return
+  const sid = document.visibilityState === 'visible' && !state.page && state.selected && machineOf(state.selected) === LOCAL ? localId(state.selected) : null
+  if (sid === viewSent) return
+  viewSent = sid
+  ws.send(JSON.stringify({ type: 'viewing', sessionId: sid } satisfies ClientMsg))
+}
+document.addEventListener('visibilitychange', () => reportViewing())
+
 function connect(machine: string) {
   if (sockets.has(machine)) return
   const base = baseOf(machine)
@@ -483,6 +499,8 @@ function connect(machine: string) {
   }
   ws.onclose = () => {
     sockets.delete(machine)
+    // A new socket is a new page to the server: it is told again.
+    if (machine === LOCAL) viewSent = undefined
     const m = state.machines[machine]
     if (m) m.connected = false
     if (!machine) state.people = []
@@ -548,7 +566,7 @@ function onServer(m: ServerMsg, machine: string) {
       break
     case 'usage': M.usage = m.usage; break
     case 'tasks': M.tasks = m.tasks; break
-    case 'people': if (!machine) state.people = m.people; break
+    case 'people': if (!machine) { state.people = m.people; state.viewing = m.viewing ?? {} } break
     case 'taken': if (!machine && m.login === state.me?.login) takenLive(g(m.sessionId), m.rev); break
     // Artifacts run on this page's own machine (on the web, the first one).
     case 'artifacts': if (looks) { state.artifacts = m.artifacts; state.artifactsPort = m.port; state.prolifica = m.prolifica }; break

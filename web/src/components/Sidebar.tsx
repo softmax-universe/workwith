@@ -773,31 +773,38 @@ function CacheHint({ s }: { s: SessionMeta }) {
 
 // With people known apart (a proxy's sign-in or typed names): you wrote in the session.
 const wroteIn = (s: SessionMeta, me: Person | null) => !!me && !!s.writers?.[me.login]
-// Someone who wrote in the last 15 minutes, or is writing now, is in the session now.
-const NOW = 15 * 60_000
+// Someone who wrote in the last 15 minutes was in the session recently.
+const RECENT = 15 * 60_000
 
-// The others who wrote in a session, newest first: badges after a row's title, and a dot on a
-// critter in the dock for someone in it now. Those in it now are bright with a ring (writing now: it
-// pulses); the others are faint. Alone, or with people not known apart, nothing shows.
+// The others in a session, as badges after a row's title, and one small badge on a critter in the
+// dock. Bright with a green ring: in it now (its page open in view, or writing; writing pulses).
+// Bright: wrote in the last 15 minutes. Faint: wrote earlier. Alone, or with people not known apart,
+// nothing shows.
 function Others({ s, dot }: { s: SessionMeta; dot?: boolean }) {
-  const { me } = useStore()
+  const { me, viewing, people } = useStore()
   const now = useNow(60_000)
   if (!me) return null
+  const sid = machineOf(s.id) === LOCAL ? s.id : null
+  const looking = new Set(Object.entries(viewing).filter(([login, ids]) => login !== me.login && sid && ids.includes(sid)).map(([login]) => login))
   const live = new Set((s.live ?? []).filter((l) => l.id !== me.login && l.parts.length).map((l) => l.id))
-  const list = Object.entries(s.writers ?? {})
-    .filter(([login]) => login !== me.login)
-    .map(([login, w]) => ({ p: { login, name: w.name, guest: w.guest } as Person, last: w.last, live: live.has(login), here: live.has(login) || now - w.last < NOW }))
-  for (const l of s.live ?? []) if (live.has(l.id) && !list.some((x) => x.p.login === l.id) && l.by) list.push({ p: l.by, last: l.ts, live: true, here: true })
-  list.sort((a, b) => b.last - a.last)
+  const by = new Map<string, { p: Person; last: number }>()
+  for (const [login, w] of Object.entries(s.writers ?? {})) if (login !== me.login) by.set(login, { p: { login, name: w.name, ...(w.guest ? { guest: true } : {}) }, last: w.last })
+  for (const l of s.live ?? []) if (live.has(l.id) && l.by && !by.has(l.id)) by.set(l.id, { p: l.by, last: 0 })
+  for (const login of looking) { const p = people.find((x) => x.login === login); if (p && !by.has(login)) by.set(login, { p, last: 0 }) }
+  const list = [...by.values()].map((x) => {
+    const writing = live.has(x.p.login)
+    const active = writing || looking.has(x.p.login)
+    return { ...x, writing, active, recent: !active && now - x.last < RECENT }
+  }).sort((a, b) => +b.active - +a.active || b.last - a.last)
   if (dot) {
-    const here = list.filter((x) => x.here)
-    return here.length ? <span className={`face-who${here.some((x) => x.live) ? ' live' : ''}`}><Who p={here[0].p} size={11} /></span> : null
+    const x = list.find((y) => y.active || y.recent)
+    return x ? <span className={`face-who${x.active ? ' active' : ''}${x.writing ? ' live' : ''}`}><Who p={x.p} size={11} /></span> : null
   }
   if (!list.length) return null
-  const tip = (x: typeof list[number]) => `${x.p.name}: ${x.live ? 'writing now' : `wrote ${timeAgo(x.last)}`}`
+  const tip = (x: typeof list[number]) => `${x.p.name}: ${[x.writing ? 'writing now' : x.active ? 'here now' : '', x.last ? `wrote ${timeAgo(x.last)}` : ''].filter(Boolean).join(', ')}`
   return (
     <span className="row-people" data-tip={list.map(tip).join('\n')} data-tip-at="right">
-      {list.slice(0, 3).map((x) => <span key={x.p.login} className={`row-person${x.here ? ' here' : ''}${x.live ? ' live' : ''}`}><Who p={x.p} size={15} /></span>)}
+      {list.slice(0, 3).map((x) => <span key={x.p.login} className={`row-person${x.active ? ' active' : x.recent ? ' recent' : ''}${x.writing ? ' live' : ''}`}><Who p={x.p} size={15} /></span>)}
       {list.length > 3 && <span className="row-people-more">+{list.length - 3}</span>}
     </span>
   )
