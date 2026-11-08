@@ -485,8 +485,10 @@ function ItemView({ sid, item, f }: { sid: string; item: Item; f: Folded }) {
   switch (e.t) {
     case 'user': return <UserTurn sid={sid} e={e} />
     case 'permission': return <PermissionCard sid={sid} e={e} resolution={f.resolved.get(e.requestId)} />
-    case 'notice': return <div className={`notice ${e.level}`}>{e.text.length > 600 ? <details><summary>{e.text.split('\n')[0].slice(0, 120)}</summary><pre>{e.text}</pre></details> : e.text}</div>
-    case 'result': return e.isError ? <div className="notice error">{e.text ?? 'The turn ended with an error.'}</div> : <div className="turn-end" title={`${(e.durationMs / 1000).toFixed(1)}s`} />
+    case 'notice': return <div className={`notice ${e.level}`} title={fullTime(e.ts)}>{e.text.length > 600 ? <details><summary>{e.text.split('\n')[0].slice(0, 120)}</summary><pre>{e.text}</pre></details> : e.text}</div>
+    // Where the turn hands back to you: a line with the time it ended.
+    case 'result': return e.isError ? <div className="notice error" title={fullTime(e.ts)}>{e.text ?? 'The turn ended with an error.'}</div>
+      : <div className="turn-end" title={`${fullTime(e.ts)} · the turn took ${duration(e.durationMs)}`}><MsgTime ts={e.ts} /></div>
     default: return null
   }
 }
@@ -661,6 +663,7 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
       <button className="tool-line activity-line" onClick={() => setOpen(!open)}>
         <span className="tool-icon"><ChevronIcon size={12} className="chevron" /></span>
         <span className="activity-sum">{tally(items, f)}</span>
+        <MsgTime ts={items[0].e.ts} className="hover" title={`${fullTime(items[0].e.ts)} to ${clockTime(last.e.ts)}`} />
       </button>
       {open
         ? <div className="activity-items">{items.map((it) => <ItemView key={it.key} sid={sid} item={it} f={f} />)}</div>
@@ -670,9 +673,10 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
 }
 
 // When a message was sent, small and grey: on hover, or always on a touch screen for your messages (styles.css).
-function MsgTime({ ts, className }: { ts: number; className?: string }) {
-  return <time className={`msg-time${className ? ` ${className}` : ''}`} dateTime={new Date(ts).toISOString()} title={fullTime(ts)}>{clockTime(ts)}</time>
+function MsgTime({ ts, className, title }: { ts: number; className?: string; title?: string }) {
+  return <time className={`msg-time${className ? ` ${className}` : ''}`} dateTime={new Date(ts).toISOString()} title={title ?? fullTime(ts)}>{clockTime(ts)}</time>
 }
+const duration = (ms: number) => ms < 60_000 ? `${Math.round(ms / 1000)}s` : ms < 3_600_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`
 
 function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> }) {
   const [editing, setEditing] = useState(false)

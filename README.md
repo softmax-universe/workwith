@@ -87,7 +87,9 @@ ever reports a key-based auth source. The sidebar footer shows your plan's 5-hou
   later" line above it, and Claude gets the same note with the date and time at the top of
   the message, so it knows that time passed (`shared/gap.ts`). Each message, yours, the
   others' at the desk and Claude's, shows when it was sent, small and grey on hover (on a
-  touch screen, always under yours): the time today, with the day before today.
+  touch screen, always under yours): the time today, with the day before today. The line
+  where Claude's turn ends and hands back to you always shows the time it ended; a row of
+  folded steps shows when they started on hover, and a notice has its time in a tooltip.
 - **Steps fold away.** Once a turn ends, Claude's in-between messages fold into the activity
   row ("2 updates · 3 edits"), unless they hold questions, items or comments. Settings has a
   switch to keep them in view.
