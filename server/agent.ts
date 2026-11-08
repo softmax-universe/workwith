@@ -3,7 +3,8 @@
 //
 //   CODINGER_AGENT_NAME     the agent's name: the sidebar, the tab, "Message Ada"
 //   CODINGER_AGENT_AVATAR   an image file: its face in the sidebar (unset: the workwith logo,
-//                           assets/workwith-logo.png)
+//                           assets/workwith-logo.png), shown as it is: a theme that wants
+//                           it round sets .brand-avatar { border-radius: 50% }
 //   CODINGER_AGENT_CSS      a CSS file that sets its colours (no theme prompt then)
 //   CODINGER_AGENT_COLOR    the colour of the installed app's title bar, e.g. #0f4a44
 //   CODINGER_AGENT_ABOUT    one line on what the agent is for: the page's description in link previews

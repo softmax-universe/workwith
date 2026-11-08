@@ -1729,7 +1729,7 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 
 /* An agent's desk (server/agent.ts): its face and name, who wrote what, and replies held for a joint turn. */
 .brand { display: flex; align-items: center; padding: 14px 14px 8px; font-weight: 700; letter-spacing: .02em; }
-.brand-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-right: 8px; flex: none; }
+.brand-avatar { width: 28px; height: 28px; object-fit: contain; margin-right: 8px; flex: none; }
 .brand-avatar + span { flex: 1; }
 .here-now { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 14px 8px; font-size: calc(12px * var(--fs, 1)); color: var(--muted); }
 .here-person { display: inline-flex; align-items: center; gap: 5px; }
