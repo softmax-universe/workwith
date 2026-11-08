@@ -11,7 +11,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
+import type { ClientMsg, InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
 import { criticalUnanswered, inboxLabel, inboxParts, openItemsOf } from '../shared/inbox.ts'
 import { execFile, spawn } from 'node:child_process'
 import os from 'node:os'
@@ -89,6 +89,13 @@ const sockets = new Set<WebSocket>()
 // Who is behind each open page, for the list of who is here (null: Codinger can't tell).
 const present = new Map<WebSocket, Person | null>()
 const people = (): Person[] => [...new Map([...present.values()].flatMap((p) => p ? [[p.login, p] as const] : [])).values()]
+// The session each page shows while it is in view, so the sidebar can show who is in a session now.
+const viewing = new Map<WebSocket, string>()
+function peopleMsg(): ServerMsg {
+  const by: Record<string, string[]> = {}
+  for (const [ws, sid] of viewing) { const p = present.get(ws); if (p && !(by[p.login] ??= []).includes(sid)) by[p.login].push(sid) }
+  return { type: 'people', people: people(), viewing: by }
+}
 // Slash commands differ by directory (project skills), so keep each session's
 // list, and the last one seen for sessions that haven't started yet.
 const COMMANDS_FILE = path.join(DATA, 'commands.json')
@@ -1868,11 +1875,21 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     sockets.add(ws)
     present.set(ws, personOf(req))
-    ws.on('close', () => { sockets.delete(ws); present.delete(ws); broadcast({ type: 'people', people: people() }) })
+    ws.on('close', () => { sockets.delete(ws); present.delete(ws); viewing.delete(ws); broadcast(peopleMsg()) })
+    ws.on('message', (raw) => {
+      let m: ClientMsg
+      try { m = JSON.parse(String(raw)) } catch { return }
+      if (m?.type !== 'viewing' || !present.get(ws)) return
+      const sid = typeof m.sessionId === 'string' && sessions.has(m.sessionId) ? m.sessionId : null
+      if ((viewing.get(ws) ?? null) === sid) return
+      if (sid) viewing.set(ws, sid)
+      else viewing.delete(ws)
+      broadcast(peopleMsg())
+    })
     ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
     ws.send(JSON.stringify({ type: 'tasks', tasks: allTasks() } satisfies ServerMsg))
     ws.send(JSON.stringify(artifactsMsg()))
-    broadcast({ type: 'people', people: people() })
+    broadcast(peopleMsg())
   })
 })
 

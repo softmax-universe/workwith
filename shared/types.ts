@@ -247,6 +247,9 @@ export type Settings = {
   projectIcons?: Record<string, string>; projectEmoji?: Record<string, string>
 }
 
+// What a page tells its server over the socket: the session it shows while it is in view (null: none).
+export type ClientMsg = { type: 'viewing'; sessionId: string | null }
+
 export type ServerMsg =
   // agent: set when Codinger runs as one agent's desk; me: who this browser is, per the proxy;
   // billing: 'api' when Claude Code bills per token (Bedrock, Vertex), so there are no plan limits.
@@ -273,7 +276,8 @@ export type ServerMsg =
   | { type: 'settings'; settings: Settings }
   | { type: 'tasks'; tasks: Task[] }
   // Who has this page open now, once each (only people Codinger can name).
-  | { type: 'people'; people: Person[] }
+  // viewing: the sessions each person has open on a page in view now, by login.
+  | { type: 'people'; people: Person[]; viewing?: Record<string, string[]> }
   // A send took this person's live drafts up to rev: their browser clears what went.
   | { type: 'taken'; sessionId: string; login: string; rev: number }
   // Every artifact (server/artifacts.ts); port: where the server that runs them listens.

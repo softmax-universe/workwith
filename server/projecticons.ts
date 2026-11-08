@@ -11,7 +11,7 @@ import { oneShot } from './oneshot.ts'
 // framework's app folder, an Electron or mobile app's icon, then a logo. No folder named after a
 // package (web/, site/): in a monorepo that is a sibling's icon, which it finds for itself.
 const PLACES = ['', 'public/', 'static/', 'app/', 'src/app/', 'src/', 'assets/', 'resources/', 'build/', 'images/', 'img/']
-const NAMES = ['favicon.svg', 'favicon.png', 'favicon.ico', 'icon.svg', 'icon.png', 'apple-touch-icon.png', 'app-icon.png', 'logo.svg', 'logo.png']
+const NAMES = ['favicon', 'icon', 'apple-touch-icon', 'app-icon', 'logo', 'mascot'].flatMap((n) => ['svg', 'png', 'ico', 'webp', 'jpg'].map((x) => `${n}.${x}`))
 // A page's own <link rel="icon">, for a favicon with another name.
 const PAGES = ['index.html', 'public/index.html', 'src/index.html']
 const IMAGE = /\.(svg|png|ico|jpe?g|webp|gif)$/i
@@ -58,14 +58,15 @@ function packageIcon(dir: string): string | null {
   return null
 }
 
-// A logo the repository names after itself (workwith-logo.png), in its root or assets/.
+// Any other image named for a logo, an icon or a mascot (workwith-logo.png, AppIcon.png), in the
+// places above: the shortest name, so a plain logo comes before its sized copies (logo-512.png).
+const LOGO = /logo|icon|mascot/i
 function namedLogo(dir: string): string | null {
-  for (const sub of ['', 'assets/', 'public/']) {
+  for (const place of PLACES) {
     let names: string[]
-    try { names = fs.readdirSync(path.join(dir, sub)) } catch { continue }
-    const hit = names.filter((n) => IMAGE.test(n) && /(^|[-_.])(logo|icon)([-_.]|$)/i.test(n) && !/\d{2,}/.test(n)).sort()[0]
-      ?? names.filter((n) => IMAGE.test(n) && /(^|[-_.])(logo|icon)([-_.]|$)/i.test(n)).sort()[0]
-    if (hit) return path.join(dir, sub, hit)
+    try { names = fs.readdirSync(path.join(dir, place)) } catch { continue }
+    const hit = names.filter((n) => IMAGE.test(n) && LOGO.test(n)).sort((x, y) => x.length - y.length || x.localeCompare(y))[0]
+    if (hit && isFile(path.join(dir, place, hit))) return path.join(dir, place, hit)
   }
   return null
 }

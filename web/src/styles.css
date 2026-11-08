@@ -1754,17 +1754,20 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 @keyframes proj-rock { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(10deg); } 75% { transform: rotate(-10deg); } }
 .compact-side .row .proj-face { width: 20px !important; height: 22px !important; }
 
-/* Who else wrote in a session (Sidebar.tsx: Others): bright with a ring while they are in it now. */
+/* The others in a session (Sidebar.tsx: Others): in it now with a green ring (writing: it pulses), wrote
+   in the last 15 minutes bright, earlier faint. */
 .row-people { display: inline-flex; align-items: center; flex: none; }
 .row-person { line-height: 0; border-radius: 50%; opacity: .4; }
 .row-person + .row-person { margin-left: -4px; }
 .row-person .who-badge { box-shadow: 0 0 0 1.5px var(--panel); }
-.row-person.here { opacity: 1; }
-.row-person.here .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--good, #3fb950); }
+.row-person.recent, .row-person.active { opacity: 1; }
+.row-person.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--good, #3fb950); }
 .row-person.live .who-badge { animation: who-pulse 1.4s ease-in-out infinite; }
 .row-people-more { font-size: calc(10.5px * var(--fs, 1)); color: var(--muted); margin-left: 3px; }
 .face-who { position: absolute; left: 0; top: 0; line-height: 0; }
-.face-who .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--good, #3fb950); }
+.face-who .who-badge { box-shadow: 0 0 0 1.5px var(--panel); }
+.face-who.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--good, #3fb950); }
 .face-who.live .who-badge { animation: who-pulse 1.4s ease-in-out infinite; }
 @keyframes who-pulse { 50% { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 4px var(--good, #3fb950); } }
 .calm .row-person.live .who-badge, .calm .face-who.live .who-badge { animation: none; }
+.head-critter .proj-badge { min-width: 16px; height: 16px; font-size: 12px; line-height: 16px; border-radius: 4px; }
