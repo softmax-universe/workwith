@@ -42,6 +42,9 @@ export function childEnv(): NodeJS.ProcessEnv {
   // Don't let the child think it is nested inside another Claude Code.
   delete env.CLAUDECODE
   delete env.CLAUDE_CODE_ENTRYPOINT
+  // The desk's own settings stay with the desk: a dev server or a test that a session
+  // starts must not find this desk's data folder (CODINGER_HOME) and sweep its sessions.
+  for (const k of Object.keys(env)) if (/^CODIN(G)?ER_/.test(k)) delete env[k]
   return env
 }
 
