@@ -837,7 +837,12 @@ button.done-mark:hover { background: color-mix(in srgb, var(--ok) 12%, transpare
 .notice.md { text-align: left; }
 .time-gap { display: flex; align-items: center; gap: 10px; margin: 22px 0 -4px; color: var(--muted); font-size: calc(11.5px * var(--fs, 1)); }
 .time-gap::before, .time-gap::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-.turn-end { height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); margin: 14px 40px; }
+.turn-end { display: flex; align-items: center; gap: 10px; margin: 14px 40px; }
+.turn-end::before, .turn-end::after { content: ''; flex: 1; height: 1px; }
+.turn-end::before { background: linear-gradient(90deg, transparent, var(--line)); }
+.turn-end::after { background: linear-gradient(90deg, var(--line), transparent); }
+.activity-line .msg-time.hover { margin-left: auto; padding-left: 8px; opacity: 0; transition: opacity .1s; }
+.activity-line:hover .msg-time.hover { opacity: 1; }
 .working-dots { display: flex; gap: 4px; padding: 10px 2px; margin-top: 22px; }
 /* WorkingDots (Transcript.tsx) makes them hop. */
 .working-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
