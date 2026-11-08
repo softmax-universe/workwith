@@ -29,6 +29,7 @@ import { focusPassage, onPassage } from './Margin.tsx'
 import { WithPastes } from './Paste.tsx'
 import { lastEmoji, topEmoji, usedEmoji } from '../emoji.ts'
 import { highlight } from '../highlight.ts'
+import { useTaskLists } from '../checks.ts'
 
 // The mark on a completed question or item.
 const Done = ({ status }: { status: string }) =>
@@ -142,6 +143,7 @@ export const AssistantMessage = memo(function AssistantMessage({ sid, msg, text,
   useCodeCopy(root, live)
   useBlockCopy(root, pieces, live)
   useReveal(root, sid, msg, pieces, live)
+  useTaskLists(root, sid, msg, live)
 
   return (
     <div className={`assistant-text md${live ? ' streaming' : ''}`} ref={root} {...(live ? {} : { 'data-msg': msg, 'data-sid': sid })}>

@@ -173,6 +173,8 @@ export type Part = ({ by?: Person }) & (
   // Items the user marked done; `text` on one is a problem they hit doing it.
   // result: how a command the item asked for went.
   | { kind: 'done'; text: string; items: { key: string; label: string; text?: string; result?: string }[]; images?: ImageRef[] }
+  // Boxes of a task list in Claude's text (- [ ] step) the user ticked or unticked ("<msg>:t<n>").
+  | { kind: 'check'; text: string; items: { key: string; label: string; checked: boolean }[]; images?: ImageRef[] }
   // Verdicts on the agent's changes and comments on their lines (shared/review.ts).
   | { kind: 'review'; text: string; files: FileVerdict[]; comments: LineComment[]; images?: ImageRef[] }
   // A message from another session (see Mail); relation: what the sender is to this session.
