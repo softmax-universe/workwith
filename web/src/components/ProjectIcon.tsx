@@ -14,13 +14,19 @@ import { FolderIcon } from './Icons.tsx'
 // quick: the folder picker's rows (a shorter walk on the server, and never a new emoji).
 type Icon = { url: string } | { emoji: string } | null
 const known = new Map<string, Icon>()
+// When each was last asked: found icons are asked again after two minutes, so a project that gets
+// a logo (or a better one) wears it without a reload; the old one shows until the answer comes.
+const askedAt = new Map<string, number>()
+const AGAIN = 120_000
 let wanted = new Set<string>()
 let timer: ReturnType<typeof setTimeout> | undefined
 // The icons set by hand that the answers in known came from, by machine.
 const setFor = new Map<string, string>()
 
 function ask(machine: string, cwd: string, quick: boolean) {
-  wanted.add(JSON.stringify([machine, cwd, quick]))
+  const key = JSON.stringify([machine, cwd, quick])
+  askedAt.set(key, Date.now())
+  wanted.add(key)
   timer ??= setTimeout(() => {
     const asks = [...wanted].map((k) => JSON.parse(k) as [string, string, boolean])
     wanted = new Set()
@@ -52,7 +58,8 @@ export function useProjectIcon(cwd: string, machine: string, quick = false, on =
   }
   const key = JSON.stringify([machine, cwd, quick])
   const url = known.get(key)
-  useEffect(() => { if (on && cwd && url === undefined) ask(machine, cwd, quick) }, [key, url, on])
+  const stale = url !== undefined && Date.now() - (askedAt.get(key) ?? 0) > AGAIN
+  useEffect(() => { if (on && cwd && (url === undefined || stale)) ask(machine, cwd, quick) }, [key, url, on, stale])
   return url && 'url' in url ? { url: media(url.url, machine) } : url ?? null
 }
 

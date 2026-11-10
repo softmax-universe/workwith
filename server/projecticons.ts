@@ -2,8 +2,13 @@
 // to its repository's root, the nearest folder with an icon set by hand (Settings.projectIcons: an
 // image or an emoji) or an icon of its own (findIn: a favicon, an app icon, a logo); else an emoji Claude picked for the
 // repository from its name and README (Settings.projectEmoji); else the critter, until it has one.
+// A folder that is not a project (the home folder, a folder of projects) is never walked for an
+// image: it wears the icon of the one project in it, if it holds just one, else its own emoji.
+// What is found is never saved, so a project that gets a logo later wears it within a minute or two.
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { describe } from './describe.ts'
 import { readable } from './guarded.ts'
@@ -18,6 +23,42 @@ function rootOf(dir: string): string {
 
 const isFile = (f: string) => { try { return fs.statSync(f).isFile() } catch { return false } }
 
+// A project: a folder in a git repository, or one with a project's files at its top. The home folder
+// is not one, even with a stray package.json or a git repository of dotfiles: it holds projects.
+const MARKERS = ['.git', 'package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', 'pubspec.yaml', 'deno.json', 'Package.swift', 'build.gradle', 'pom.xml', 'Gemfile', 'setup.py', 'requirements.txt', 'CMakeLists.txt', 'manifest.json']
+const hasMarker = (d: string) => MARKERS.some((m) => fs.existsSync(path.join(d, m)))
+const isHome = (d: string) => path.resolve(d) === path.resolve(os.homedir())
+export function isProject(dir: string): boolean {
+  if (isHome(dir)) return false
+  const root = rootOf(dir)
+  return (fs.existsSync(path.join(root, '.git')) && !isHome(root)) || hasMarker(dir)
+}
+
+// The projects in a folder that is not one, up to 2 levels down; it stops at the second.
+function projectsIn(dir: string): string[] {
+  const out: string[] = []
+  const look = (d: string, depth: number) => {
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (out.length > 1) return
+      if (!e.isDirectory() || SKIP.has(e.name) || e.name.startsWith('.')) continue
+      const sub = path.join(d, e.name)
+      if (!readable(sub)) continue
+      if (hasMarker(sub)) out.push(sub)
+      else if (depth < 2) look(sub, depth + 1)
+    }
+  }
+  look(dir, 1)
+  return out
+}
+
+// Images a project's scaffold ships and nobody has replaced yet (md5): create-next-app's favicon.ico.
+const DEFAULTS = new Set(['c30c7d42707a47a3f4591831641e50dc'])
+const isDefault = (f: string) => {
+  try { return fs.statSync(f).size < 1_000_000 && DEFAULTS.has(crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex')) } catch { return false }
+}
+
 // A folder's own icon, found by a short walk through it (at most 6 levels and 5000 entries), each image
 // scored by its name and place. An image that the project points to wins: an icon in a web app
 // manifest (manifest.json, *.webmanifest; a Chrome extension's too), a page's <link rel="icon">, the
@@ -30,7 +71,7 @@ const isFile = (f: string) => { try { return fs.statSync(f).isFile() } catch { r
 // above the session's, its packages (apps/, packages/..., or a folder with a package.json, Cargo.toml,
 // pyproject.toml, go.mod or .git of its own) are not walked either: they are a sibling's icon.
 const IMAGE = /\.(svg|png|ico|webp|jpe?g|gif)$/i
-const SKIP = new Set(['node_modules', '.git', 'target', 'vendor', '.next', '.nuxt', '.svelte-kit', 'coverage', '__pycache__', 'venv', '.venv', 'env', 'Pods', 'DerivedData', '.gradle', '.idea', '.vscode', 'tmp', 'temp', 'third_party', 'third-party', '__tests__', 'test', 'tests', 'fixtures', 'examples', 'example', 'bower_components', 'site-packages', '.cache', '.turbo', '.expo', 'intermediates', 'generated', 'Library'])
+const SKIP = new Set(['node_modules', '.git', 'target', 'vendor', '.next', '.nuxt', '.svelte-kit', 'coverage', '__pycache__', 'venv', '.venv', 'env', 'Pods', 'DerivedData', '.gradle', '.idea', '.vscode', 'tmp', 'temp', 'third_party', 'third-party', '__tests__', 'test', 'tests', 'fixtures', 'examples', 'example', 'bower_components', 'site-packages', '.cache', '.turbo', '.expo', 'intermediates', 'generated', 'Library', 'archive', '_archive', 'archived', 'old', 'raw', 'drafts', 'experiments', 'experiment'])
 const PACKAGES = new Set(['apps', 'packages', 'services', 'libs', 'crates', 'modules', 'projects', 'plugins', 'extensions'])
 const PROJECT = ['package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', '.git', 'pubspec.yaml']
 const NAMED: [RegExp, number][] = [
@@ -47,8 +88,6 @@ const BRANDS = /^(github|gitlab|bitbucket|twitter|discord|slack|google|facebook|
 const UI = /^(spinner|loading|loader|arrow|chevron|caret|close|menu|search|check|plus|minus|shield|placeholder|avatar|user|empty|error|warning|info|edit|delete|trash|add|remove|settings|home|back|left|right|up|down)$/
 const wordsOf = (name: string) => name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
 
-type Found = { file: string; score: number }
-
 const pngWidth = (f: string) => {
   try {
     const fd = fs.openSync(f, 'r'); const b = Buffer.alloc(24); fs.readSync(fd, b, 0, 24, 0); fs.closeSync(fd)
@@ -56,12 +95,14 @@ const pngWidth = (f: string) => {
   } catch { return 0 }
 }
 
-function score(dir: string, file: string, many: boolean): number {
+// base: how much the name and place say it is the project's icon (25 or more counts); rank: base
+// less its depth, which orders those that count, so a shallow logo beats a deep favicon.
+function score(dir: string, file: string, many: boolean): { base: number; rank: number } {
   const rel = path.relative(dir, file).split(path.sep).join('/').toLowerCase()
   const name = path.basename(rel).replace(/\.[^.]+$/, '')
   let s = NAMED.find(([re]) => re.test(name))?.[1] ?? 0
   s = Math.max(s, PLACE.find(([re]) => re.test(rel))?.[1] ?? 0)
-  if (!s) return 0
+  if (!s) return { base: 0, rank: 0 }
   const words = wordsOf(path.basename(file).replace(/\.[^.]+$/, ''))
   if (words.some((w) => BRANDS.test(w)) || (!/logo/.test(name) && words.some((w) => UI.test(w)))) s -= 60
   if (many && !PLACE.some(([re]) => re.test(rel))) s -= 40
@@ -69,13 +110,17 @@ function score(dir: string, file: string, many: boolean): number {
   // A build's copy counts only when the source has none.
   if (/(^|\/)(dist|out)\//.test(rel)) s -= 15
   if (name.includes(path.basename(dir).toLowerCase())) s += 5
-  s -= 4 * (rel.split('/').length - 1)
+  const depth = rel.split('/').length - 1
+  // A launcher icon's place (mipmap-*, AppIcon.appiconset) is deep by nature.
+  const placed = PLACE.some(([re]) => re.test(rel))
+  let rank = -(placed ? 4 : 10) * depth
   const ext = path.extname(rel)
   s += ext === '.svg' ? 4 : ext === '.png' ? 3 : ext === '.webp' ? 2 : ext === '.ico' ? 0 : -5
   if (ext === '.png') { const w = pngWidth(file); s += w && w < 32 ? -20 : w >= 128 ? 5 : 0 }
   let size = 0
   try { size = fs.statSync(file).size } catch { /* gone */ }
-  return size < 100 ? 0 : s
+  if (size < 100) return { base: 0, rank: 0 }
+  return { base: s, rank: s + rank }
 }
 
 // The image a file names, from the folder the file is in, if it is inside dir.
@@ -139,7 +184,7 @@ function pointed(dir: string, files: string[]): string[] {
 // quick: for a long list of folders (the folder picker), a shorter walk: 3 levels, 400 entries.
 function findIn(dir: string, from?: string, quick = false): string | null {
   // A folder in no repository (a home folder) is looked at only near its top.
-  const deep = fs.existsSync(path.join(rootOf(dir), '.git')) ? quick ? 3 : 6 : 2
+  const deep = quick ? 3 : 6
   const images: { file: string; many: boolean }[] = []
   const pointers: string[] = []
   let left = quick ? 400 : 5000
@@ -153,35 +198,53 @@ function findIn(dir: string, from?: string, quick = false): string | null {
     for (const e of entries) {
       if (!e.isFile()) continue
       const n = e.name.toLowerCase()
-      if (n === 'manifest.json' || n.endsWith('.webmanifest') || (n.endsWith('.html') && depth <= 3) || (depth === 0 && (n === 'package.json' || /^readme(\.(md|markdown|rst|txt))?$/.test(n)))) pointers.push(path.join(d, e.name))
+      if (((n === 'manifest.json' || n.endsWith('.webmanifest') || n.endsWith('.html')) && depth <= 2) || (depth === 0 && (n === 'package.json' || /^readme(\.(md|markdown|rst|txt))?$/.test(n)))) pointers.push(path.join(d, e.name))
     }
     if (depth >= deep) return
     for (const e of entries) {
       if (left <= 0) return
-      if (!e.isDirectory() || SKIP.has(e.name) || (e.name.startsWith('.') && e.name !== '.github')) continue
+      if (!e.isDirectory() || SKIP.has(e.name) || /-output$/.test(e.name) || (e.name.startsWith('.') && e.name !== '.github')) continue
       const sub = path.join(d, e.name)
       if (!readable(sub)) continue
       // Above the session's folder: not the folder already looked in, nor a sibling package.
-      if (from && (sub === from || (depth === 0 && PACKAGES.has(e.name)) || PROJECT.some((p) => fs.existsSync(path.join(sub, p))))) continue
+      // A repository inside this one is another project, and so are a monorepo's packages.
+      if (fs.existsSync(path.join(sub, '.git')) || (depth === 0 && PACKAGES.has(e.name))) continue
+      if (from && (sub === from || PROJECT.some((p) => fs.existsSync(path.join(sub, p))))) continue
       walk(sub, depth + 1)
     }
   }
   walk(dir, 0)
-  const hit = pointed(dir, pointers)[0]
+  const hit = pointed(dir, pointers).find((f) => !isDefault(f))
   if (hit) return hit
-  const best = images.map(({ file, many }) => ({ file, score: score(dir, file, many) }) as Found).sort((a, b) => b.score - a.score)[0]
-  return best && best.score >= 25 ? best.file : null
+  const ranked = images.map(({ file, many }) => ({ file, ...score(dir, file, many) })).filter((x) => x.base >= 25).sort((a, b) => b.rank - a.rank)
+  return ranked.find((x) => !isDefault(x.file))?.file ?? null
 }
 
-// Kept ten minutes, so the sidebar's asks don't walk the disk each time.
-const found = new Map<string, { file: string | null; at: number }>()
-function foundIn(dir: string, from?: string, quick = false): string | null {
-  const key = `${dir}\n${from ?? ''}\n${quick ? 'q' : ''}`
+// Kept a minute, so the sidebar's asks don't walk the disk each time, and a logo added later shows soon.
+const KEEP = 60_000
+const found = new Map<string, { v: any; at: number }>()
+function kept<T>(key: string, get: () => T): T {
   const hit = found.get(key)
-  if (hit && Date.now() - hit.at < 600_000) return hit.file
-  const file = findIn(dir, from, quick)
-  found.set(key, { file, at: Date.now() })
-  return file
+  if (hit && Date.now() - hit.at < KEEP) return hit.v
+  const v = get()
+  found.set(key, { v, at: Date.now() })
+  return v
+}
+// The folder picker's shorter walk gives the sidebar's answer when that is known, so the two agree.
+function foundIn(dir: string, from?: string, quick = false): string | null {
+  const key = (q: boolean) => `found\n${dir}\n${from ?? ''}\n${q ? 'q' : ''}`
+  const full = found.get(key(false))
+  if (quick && full && Date.now() - full.at < KEEP) return full.v
+  return kept(key(quick), () => findIn(dir, from, quick))
+}
+const projectAt = (dir: string) => kept(`project\n${dir}`, () => isProject(dir))
+const projectsAt = (dir: string) => kept(`projects\n${dir}`, () => projectsIn(dir))
+// Whose emoji a folder wears: its repository's (a project), or its own (a folder of projects). A
+// repository of dotfiles in the home folder is not the repository of the projects under it.
+export function emojiKey(cwd: string): string {
+  if (!projectAt(cwd)) return cwd
+  const r = rootOf(cwd)
+  return isHome(r) ? cwd : r
 }
 
 // What a folder's sessions wear: an image (url), an emoji, or nothing (the critter).
@@ -194,12 +257,16 @@ type Got = { set: string } | { file: string } | { emoji: string } | null
 function resolve(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, quick = false): Got {
   // In a folder macOS guards (server/guarded.ts), until Codinger may read there: only an icon set by hand.
   if (!readable(cwd)) return icons?.[cwd] && icons[cwd] !== 'none' ? { set: icons[cwd] } : null
-  const root = rootOf(cwd)
-  let inside = true
+  const project = projectAt(cwd)
+  const root = emojiKey(cwd)
+  // Not a project (the home folder, a folder of projects): no walk through it.
+  let inside = project
   let prev = cwd
   for (let d = cwd; ; d = path.dirname(d)) {
     if (icons?.[d]) return icons[d] === 'none' ? null : { set: icons[d] }
     if (inside) { const f = foundIn(d, d === cwd ? undefined : prev, quick); if (f) return { file: f } }
+    // A folder with just one project in it wears that project's icon or emoji, if it has one.
+    if (d === cwd && !project) { const kids = projectsAt(cwd); if (kids.length === 1) { const g = resolve(icons, emoji, kids[0], quick); if (g) return g } }
     prev = d
     if (d === root) inside = false
     if (path.dirname(d) === d) break
@@ -215,14 +282,15 @@ export const iconFile = (icons: Record<string, string> | undefined, cwd: string,
 export function iconOf(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, learn?: (root: string, emoji: string) => void, quick = false): ProjectIcon {
   const g = resolve(icons, emoji, cwd, quick)
   if (!g) {
-    if (learn && !icons?.[cwd] && readable(cwd)) void pickEmoji(rootOf(cwd), learn)
+    if (learn && !icons?.[cwd] && readable(cwd)) void pickEmoji(emojiKey(cwd), learn)
     return null
   }
   if ('emoji' in g) return g
   if ('set' in g) return g.set.startsWith('/api/') ? { url: g.set } : { emoji: g.set }
   let v = 0
   try { v = Math.round(fs.statSync(g.file).mtimeMs) } catch { /* gone */ }
-  return { url: `/api/project-icon?cwd=${encodeURIComponent(cwd)}${quick ? '&quick=1' : ''}&v=${v}` }
+  // The url names the file, so a better icon found later is a new url, not the browser's old copy.
+  return { url: `/api/project-icon?cwd=${encodeURIComponent(cwd)}${quick ? '&quick=1' : ''}&v=${v}-${crypto.createHash('md5').update(g.file).digest('hex').slice(0, 8)}` }
 }
 
 // Once for each repository while the server runs, even if Claude gives no emoji.
@@ -234,8 +302,12 @@ async function pickEmoji(root: string, learn: (root: string, emoji: string) => v
   let pkg = ''
   try { const j = JSON.parse(read('package.json', 20000)); pkg = [j.name, j.description, ...(j.keywords ?? [])].filter(Boolean).join(' · ') } catch { /* none */ }
   const readme = ['README.md', 'README', 'readme.md', 'README.txt'].map((f) => read(f, 1500)).find(Boolean) ?? ''
+  // A folder of projects: what is in it says more than its name.
+  let kids = ''
+  if (!projectAt(root)) { try { kids = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).slice(0, 40).join(', ') } catch { /* unreadable */ } }
   const answer = await describe([
-    `Folder: ${path.basename(root)}`,
+    `Folder: ${path.basename(root)}${isHome(root) ? ' (a home folder)' : ''}`,
+    kids && `A folder of projects and other folders: ${kids}`,
     pkg && `package.json: ${pkg}`,
     readme && `README (start):\n${readme}`,
   ].filter(Boolean).join('\n\n'), 'Pick one emoji to be the icon of this software project in a list of projects. Reply with the emoji only.')

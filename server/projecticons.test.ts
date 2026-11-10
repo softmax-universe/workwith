@@ -115,3 +115,66 @@ test('the folder picker (quick): a shorter walk, an emoji only if one is known, 
   assert.equal(iconFile(undefined, f, true), null)
   assert.equal(found(f), 'a/b/c/d/logo.svg')
 })
+
+// Folders of plain files, in no repository (a folder of projects, a home folder).
+function folder(name: string, files: Record<string, string | number>): string {
+  const dir = path.join(top, name)
+  for (const [f, v] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true })
+    fs.writeFileSync(path.join(dir, f), typeof v === 'number' ? png(v) : v)
+  }
+  return dir
+}
+
+test("a folder of projects is not walked: no project's icon, though one is a Chrome extension", () => {
+  const d = folder('code', {
+    'surfer/.git/HEAD': '', 'surfer/manifest.json': JSON.stringify({ icons: { 128: 'icons/icon128.png' } }), 'surfer/icons/icon128.png': 128,
+    'globe/.git/HEAD': '', 'globe/dist/manifest.webmanifest': JSON.stringify({ icons: [{ src: 'icon-512.png', sizes: '512x512' }] }), 'globe/dist/icon-512.png': 512,
+    'logo.png': 256,
+  })
+  assert.equal(found(d), null)
+  assert.equal(iconFile(undefined, d, true), null)
+  assert.deepEqual(iconOf(undefined, { [d]: '🗂️' }, d), { emoji: '🗂️' })
+  // Each project still has its own.
+  assert.equal(found(path.join(d, 'surfer')), 'icons/icon128.png')
+})
+
+test('a folder with just one project in it wears that project\'s icon', () => {
+  const d = folder('wrapper', { 'notes/todo.txt': 'x', 'app/.git/HEAD': '', 'app/public/favicon.svg': svg })
+  assert.equal(found(d), 'app/public/favicon.svg')
+  // Two levels down counts too, and a second project makes it a folder of projects.
+  const e = folder('wrapper2', { 'work/app/package.json': '{}', 'work/app/logo.svg': svg })
+  assert.equal(found(e), 'work/app/logo.svg')
+  fs.mkdirSync(path.join(e, 'other/.git'), { recursive: true })
+  assert.equal(iconFile(undefined, path.join(e, 'work'), false), path.join(e, 'work/app/logo.svg'))
+})
+
+test("a project does not take a repository's icon from inside it, nor a monorepo package's", () => {
+  assert.equal(found(repo('host', { 'vendor-ish/sub/.git/HEAD': '', 'vendor-ish/sub/favicon.ico': 'x'.repeat(200) })), null)
+  assert.equal(found(repo('mono-root', { 'packages/web/games/cards/public/favicon.png': 128, 'package.json': '{}' })), null)
+})
+
+test('a shallow logo beats a deep favicon; a deep icon still counts when it is the only one (cubi)', () => {
+  assert.equal(found(repo('depth', { 'assets/logo.png': 256, 'src/ui/pages/admin/static/favicon.png': 128 })), 'assets/logo.png')
+  assert.equal(found(repo('cubi', { 'cmd/admind-devserver/static/icon-512.png': 512, 'cmd/admind-devserver/main.go': '' })), 'cmd/admind-devserver/static/icon-512.png')
+})
+
+test("archives, experiments, raw art and a scaffold's untouched favicon do not count", () => {
+  assert.equal(found(repo('archived', { '_archive/old-ext/icon128.png': 128, 'experiments/launcher/icon-512.png': 512, 'art/raw/x/logo.png': 256, 'art/gen-output/logo2.png': 256 })), null)
+  const next = fs.readFileSync(path.join(import.meta.dirname, 'fixtures-next-favicon.ico'))
+  const d = repo('next-default', { 'app/page.tsx': '' })
+  fs.writeFileSync(path.join(d, 'app/favicon.ico'), next)
+  assert.equal(found(d), null)
+  const e = repo('next-mine', { 'app/page.tsx': '' })
+  fs.writeFileSync(path.join(e, 'app/favicon.ico'), Buffer.concat([next, Buffer.from('mine')]))
+  assert.equal(found(e), 'app/favicon.ico')
+})
+
+test('a logo added later is worn once the minute it is kept for has passed, under a new url', async (t) => {
+  const d = repo('later', { 'README.md': '# Later' })
+  assert.equal(found(d), null)
+  fs.writeFileSync(path.join(d, 'logo.svg'), svg)
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() + 61_000 })
+  assert.equal(found(d), 'logo.svg')
+  t.mock.timers.reset()
+})
