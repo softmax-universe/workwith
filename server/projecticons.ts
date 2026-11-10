@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe } from './describe.ts'
+import { readable } from './guarded.ts'
 
 // The repository's root: the nearest folder up with .git, or the folder itself.
 function rootOf(dir: string): string {
@@ -25,11 +26,11 @@ const isFile = (f: string) => { try { return fs.statSync(f).isFile() } catch { r
 // ic_launcher), an iOS AppIcon.appiconset, Tauri's src-tauri/icons, icon, logo, mascot; in a
 // public/, static/, assets/ or res/ folder a little more, deeper a little less. Images of other
 // brands and of the UI (github.svg, arrow.svg, a folder of many icons) count less, and none below a
-// score of 25 counts. A build's copy (dist/, out/) counts less; folders of dependencies are not walked. When the folder is one
+// score of 25 counts. A build's copy (dist/, out/) counts less; folders of dependencies (and Library) are not walked. When the folder is one
 // above the session's, its packages (apps/, packages/..., or a folder with a package.json, Cargo.toml,
 // pyproject.toml, go.mod or .git of its own) are not walked either: they are a sibling's icon.
 const IMAGE = /\.(svg|png|ico|webp|jpe?g|gif)$/i
-const SKIP = new Set(['node_modules', '.git', 'target', 'vendor', '.next', '.nuxt', '.svelte-kit', 'coverage', '__pycache__', 'venv', '.venv', 'env', 'Pods', 'DerivedData', '.gradle', '.idea', '.vscode', 'tmp', 'temp', 'third_party', 'third-party', '__tests__', 'test', 'tests', 'fixtures', 'examples', 'example', 'bower_components', 'site-packages', '.cache', '.turbo', '.expo', 'intermediates', 'generated'])
+const SKIP = new Set(['node_modules', '.git', 'target', 'vendor', '.next', '.nuxt', '.svelte-kit', 'coverage', '__pycache__', 'venv', '.venv', 'env', 'Pods', 'DerivedData', '.gradle', '.idea', '.vscode', 'tmp', 'temp', 'third_party', 'third-party', '__tests__', 'test', 'tests', 'fixtures', 'examples', 'example', 'bower_components', 'site-packages', '.cache', '.turbo', '.expo', 'intermediates', 'generated', 'Library'])
 const PACKAGES = new Set(['apps', 'packages', 'services', 'libs', 'crates', 'modules', 'projects', 'plugins', 'extensions'])
 const PROJECT = ['package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', '.git', 'pubspec.yaml']
 const NAMED: [RegExp, number][] = [
@@ -159,6 +160,7 @@ function findIn(dir: string, from?: string, quick = false): string | null {
       if (left <= 0) return
       if (!e.isDirectory() || SKIP.has(e.name) || (e.name.startsWith('.') && e.name !== '.github')) continue
       const sub = path.join(d, e.name)
+      if (!readable(sub)) continue
       // Above the session's folder: not the folder already looked in, nor a sibling package.
       if (from && (sub === from || (depth === 0 && PACKAGES.has(e.name)) || PROJECT.some((p) => fs.existsSync(path.join(sub, p))))) continue
       walk(sub, depth + 1)
@@ -190,6 +192,8 @@ type Got = { set: string } | { file: string } | { emoji: string } | null
 // own, so the packages of a monorepo can each have theirs; above the root, only one set by hand.
 // Else the emoji Claude picked for the repository (projectEmoji), or none yet.
 function resolve(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, quick = false): Got {
+  // In a folder macOS guards (server/guarded.ts), until Codinger may read there: only an icon set by hand.
+  if (!readable(cwd)) return icons?.[cwd] && icons[cwd] !== 'none' ? { set: icons[cwd] } : null
   const root = rootOf(cwd)
   let inside = true
   let prev = cwd
@@ -211,7 +215,7 @@ export const iconFile = (icons: Record<string, string> | undefined, cwd: string,
 export function iconOf(icons: Record<string, string> | undefined, emoji: Record<string, string> | undefined, cwd: string, learn?: (root: string, emoji: string) => void, quick = false): ProjectIcon {
   const g = resolve(icons, emoji, cwd, quick)
   if (!g) {
-    if (learn && !icons?.[cwd]) void pickEmoji(rootOf(cwd), learn)
+    if (learn && !icons?.[cwd] && readable(cwd)) void pickEmoji(rootOf(cwd), learn)
     return null
   }
   if ('emoji' in g) return g

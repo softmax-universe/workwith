@@ -34,6 +34,7 @@ import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, s
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
 import { firstEmoji, iconFile, iconOf, iconType } from './projecticons.ts'
+import { canRead, guardedMessage, readable } from './guarded.ts'
 import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
@@ -1426,11 +1427,13 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     }
     for (const m of metas()) if (m.kind === 'worker') add(m.cwd, m.lastActivity, 'codinger')
     for (const h of history()) add(h.cwd, h.mtime, 'claude')
-    const dirs = [...seen.values()].filter((d) => fs.existsSync(d.path)).sort((x, y) => y.ts - x.ts).slice(0, 60)
+    // One in a folder macOS guards is listed unchecked: checking would wait for macOS (server/guarded.ts).
+    const dirs = [...seen.values()].filter((d) => !readable(d.path) || fs.existsSync(d.path)).sort((x, y) => y.ts - x.ts).slice(0, 60)
     return send(res, 200, dirs)
   }
   if (a === 'fs' && id === 'dirs' && method === 'GET') {
     const p = expandHome(url.searchParams.get('path') || '~')
+    if (!(await canRead(p))) throw new HttpError(403, guardedMessage(p))
     try { return send(res, 200, listDirs(p, url.searchParams.get('hidden') === '1')) } catch { throw new HttpError(400, `Can't read ${p}`) }
   }
   if (a === 'fs' && id === 'stat' && method === 'GET') {
@@ -1623,13 +1626,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // seq: the message that names the path, which can be relative to a worktree.
     const named = url.searchParams.get('path') || '.', seq = Number(url.searchParams.get('seq'))
     const abs = allowed(s.meta, s.getEvents(), seq ? locate(s.meta, s.getEvents(), named, seq) : named)
+    if (abs && !(await canRead(abs))) throw new HttpError(403, guardedMessage(abs))
     let st: fs.Stats | null = null
     try { st = abs ? fs.statSync(abs) : null } catch {}
     if (!abs || !st) throw new HttpError(404, 'No such file, or not one this session can show')
     if (st.isDirectory()) return send(res, 200, { path: abs, kind: 'dir', entries: await listDir(abs) })
     return send(res, 200, { path: abs, kind: 'file', size: st.size, mtime: st.mtimeMs })
   }
-  if (b === 'find' && method === 'GET') return send(res, 200, await findFiles(path.resolve(s.meta.cwd), url.searchParams.get('q') ?? ''))
+  if (b === 'find' && method === 'GET') {
+    if (!(await canRead(s.meta.cwd))) throw new HttpError(403, guardedMessage(s.meta.cwd))
+    return send(res, 200, await findFiles(path.resolve(s.meta.cwd), url.searchParams.get('q') ?? ''))
+  }
   if (b === 'uncommitted' && method === 'GET') return send(res, 200, { files: await uncommitted(s.meta.cwd) })
   if (b === 'diff' && method === 'GET') {
     const abs = allowed(s.meta, s.getEvents(), url.searchParams.get('path') || '')
