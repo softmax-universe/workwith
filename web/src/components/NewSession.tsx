@@ -9,6 +9,17 @@ import { SessionPicker } from './SessionPicker.tsx'
 import { focusField, RichInput } from './Inputs.tsx'
 import { ChevronIcon } from './Icons.tsx'
 
+// The title and first message you typed and didn't send, kept as you type: closing the dialog
+// (Esc, Cancel, a click outside, a reload) loses nothing, and the next new session starts with it.
+const DRAFT = 'codinger.newSession.draft'
+type Draft = { title: string; prompt: string }
+function readDraft(): Draft | null {
+  try { const d = JSON.parse(localStorage.getItem(DRAFT) ?? 'null') as Draft | null; return d && (d.prompt || d.title) ? d : null } catch { return null }
+}
+function writeDraft(d: Draft | null) {
+  try { if (d && (d.prompt.trim() || d.title.trim())) localStorage.setItem(DRAFT, JSON.stringify(d)); else localStorage.removeItem(DRAFT) } catch { /* no storage: nothing kept */ }
+}
+
 // machine: where it runs; the current session's by default.
 // title and prompt: filled in already (a link from another app, url.ts).
 export function NewSession({ cwd: initial, machine: start = currentMachine(), group, title: initialTitle = '', prompt: initialPrompt = '', onClose }: { cwd: string; machine?: string; group?: string; title?: string; prompt?: string; onClose(): void }) {
@@ -18,7 +29,10 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   const startDir = (m: string) => { const d = state.machines[m]?.defaultDir; return d ? shortPath(d, m) : '' }
   const [startCwd] = useState(() => initial || startDir(start))
   const [cwd, setCwd] = useState(startCwd)
-  const [title, setTitle] = useState(initialTitle)
+  // A link's own title and message (url.ts) come first, and don't touch the kept draft.
+  const linked = !!(initialTitle || initialPrompt)
+  const [restored] = useState(() => linked ? null : readDraft())
+  const [title, setTitle] = useState(restored?.title ?? initialTitle)
   const [model, setModel] = useState('')
   const [mode, setMode] = useState<PermissionMode>('auto')
   const [flags, setFlags] = useState<string[]>([])
@@ -26,8 +40,12 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   // The MCP servers it starts with; null: not changed, so the default of your settings.
   const [mcp, setMcp] = useState<string[] | null>(null)
   const mcpOff = state.machines[machine]?.settings.mcpStartOff !== false
-  const [prompt, setPrompt] = useState(initialPrompt)
+  const [prompt, setPrompt] = useState(restored?.prompt ?? initialPrompt)
   const [images, setImages] = useState<ImageRef[]>([])
+  const sent = useRef(false)
+  useEffect(() => { if (!linked && !sent.current) writeDraft({ title, prompt }) }, [title, prompt, linked])
+  // With something typed, a click outside doesn't close it: only Esc or Cancel do (and the draft stays).
+  const typed = !!(prompt.trim() || title.trim() || images.length)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Whether the typed directory exists; if it doesn't, Create makes it first.
@@ -66,6 +84,8 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
       const id = globalId(machine, meta.id)
       if (prompt.trim() || images.length) await api(`/api/sessions/${id}/send`, 'POST', { parts: [{ kind: 'text', text: prompt, images }] })
       else setComposer(id, { text: '' })
+      sent.current = true
+      if (!linked) writeDraft(null)
       select(id)
       onClose()
     } catch (e) {
@@ -75,7 +95,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
   }
 
   return (
-    <div className="modal-back top" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="modal-back top" onMouseDown={(e) => { if (e.target === e.currentTarget && !typed) onClose() }}>
       <form className="modal wide" onSubmit={(e) => { e.preventDefault(); void create() }}>
         <h2>New session</h2>
         {machineList().length > 1 && (
@@ -118,7 +138,7 @@ export function NewSession({ cwd: initial, machine: start = currentMachine(), gr
             <SessionPicker sessions={state.sessions.filter((s) => s.kind === 'worker' && !s.archived && machineOf(s.id) === machine)} value={parentId} onChange={setParentId} placeholder="None. Type to search sessions" />
           </div>
         </>}
-        <div className="field" ref={first}>First message (optional)
+        <div className="field" ref={first}><span>First message (optional){restored && (prompt || title) && <> · <span className="muted">your unsent draft</span> <button type="button" className="link" onClick={() => { setPrompt(''); setTitle('') }}>Clear</button></>}</span>
           <RichInput value={prompt} onChange={setPrompt} images={images} onImages={setImages} onSubmit={() => void create()} minRows={4} machine={machine} autoFocus={!!startCwd} uploadDir={cwd} />
         </div>
         {err && <div className="notice error">{err}</div>}
