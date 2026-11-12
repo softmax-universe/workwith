@@ -9,11 +9,11 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 
 const HOME = os.homedir()
-// Guarded whole, or (EACH) each folder in it on its own: ~/Library holds other apps' data, and the
-// media folders their libraries (Library/Photos, Movies/TV, Pictures/Photos Library.photoslibrary),
-// some of which macOS asks about, and ls of one says nothing of the next.
-const WHOLE = ['Desktop', 'Documents', 'Downloads', 'Library/Mobile Documents', 'Library/CloudStorage'].map((d) => path.join(HOME, d))
-const EACH = [...['Library', 'Pictures', 'Movies', 'Music'].map((d) => path.join(HOME, d)), '/Volumes']
+// Guarded whole, or (EACH) each folder in it on its own: ~/Library holds other apps' data (Library/
+// Photos), some of which macOS asks about, and ls of one says nothing of the next. The media
+// folders are guarded whole: a recent macOS asks before even listing ~/Movies or ~/Music.
+const WHOLE = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Movies', 'Music', 'Library/Mobile Documents', 'Library/CloudStorage'].map((d) => path.join(HOME, d))
+const EACH = [path.join(HOME, 'Library'), '/Volumes']
 
 // The guarded folder p is in (or is), or null.
 export function guardOf(p: string): string | null {

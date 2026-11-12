@@ -18,6 +18,7 @@ import { costOf } from '../shared/prices.ts'
 import { dayKey } from '../shared/costs.ts'
 import { hubAuth, remoteStatus } from './remote.ts'
 import { addTok, differ, digest, noTok, type Ledger, type Tok, type UsageConv, type UsageReply } from '../shared/usage.ts'
+import { readable } from './guarded.ts'
 
 const FILE = path.join(DATA, 'usage.json')
 const HOME = os.homedir()
@@ -128,6 +129,7 @@ function moved(rel: string, cwd: string) {
   const name = rel.split(path.sep)[0]
   if (encode(cwd) === name || fs.existsSync(cwd) || saved.aliases?.[cwd]) return
   let list: string[] = []
+  if (!readable(path.dirname(cwd))) return
   try { list = fs.readdirSync(path.dirname(cwd)) } catch { return }
   const to = list.map((e) => path.join(path.dirname(cwd), e)).find((d) => encode(d) === name)
   if (to) { (saved.aliases ??= {})[cwd] = projectOf(to) ?? to; projects.clear() }
