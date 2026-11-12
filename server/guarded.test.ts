@@ -19,6 +19,8 @@ test('guardOf names the folder macOS guards', { skip: !mac }, () => {
   assert.equal(guardOf(path.join(home, 'Movies')), path.join(home, 'Movies'))
   assert.equal(guardOf(path.join(home, 'Music')), path.join(home, 'Music'))
   assert.equal(guardOf(path.join(home, '.Trash/x')), path.join(home, '.Trash'))
+  assert.equal(guardOf(path.join(home, 'Library/Containers/com.apple.mail/Data')), path.join(home, 'Library/Containers/com.apple.mail'))
+  assert.equal(guardOf(path.join(home, 'Library/Group Containers/group.x/y')), path.join(home, 'Library/Group Containers/group.x'))
   assert.equal(guardOf(path.join(home, 'Library')), null)
   assert.equal(guardOf(path.join(home, 'DesktopApps')), null)
   assert.equal(guardOf(path.join(home, 'dev/app')), null)

@@ -13,7 +13,8 @@ const HOME = os.homedir()
 // Photos), some of which macOS asks about, and ls of one says nothing of the next. The media
 // folders are guarded whole: a recent macOS asks before even listing ~/Movies or ~/Music. So is the Trash.
 const WHOLE = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Movies', 'Music', '.Trash', 'Library/Mobile Documents', 'Library/CloudStorage'].map((d) => path.join(HOME, d))
-const EACH = [path.join(HOME, 'Library'), '/Volumes']
+// Most specific first: each app's container in Library/Containers is guarded on its own.
+const EACH = [...['Library/Containers', 'Library/Group Containers', 'Library'].map((d) => path.join(HOME, d)), '/Volumes']
 
 // The guarded folder p is in (or is), or null.
 export function guardOf(p: string): string | null {

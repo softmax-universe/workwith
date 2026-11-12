@@ -168,7 +168,8 @@ function filesUnder(dir: string): Promise<string[]> {
     const walk = async (rel: string) => {
       if (found.length >= 20_000) return
       const abs = path.join(dir, rel)
-      if (!readable(abs)) return
+      // Other apps' data is not the home folder's files.
+      if (!readable(abs) || abs === path.join(os.homedir(), 'Library')) return
       let list: fs.Dirent[] = []
       try { list = await fs.promises.readdir(abs, { withFileTypes: true }) } catch { return }
       for (const d of list) {
