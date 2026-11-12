@@ -10,6 +10,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import type { Event, SessionMeta } from '../shared/types.ts'
 import { ARTIFACTS } from './artifacts.ts'
+import { readable } from './guarded.ts'
 import { expandHome } from './store.ts'
 
 export type Entry = { name: string; kind: 'dir' | 'file'; size: number; mtime: number; dim?: boolean; secret?: boolean }
@@ -161,18 +162,21 @@ function filesUnder(dir: string): Promise<string[]> {
   if (had && Date.now() - had.at < 10_000) return had.files
   const files = run('git', ['ls-files', '-co', '--exclude-standard', '-z'], dir).then(({ ok, out }) => {
     if (ok) return out.split('\0').filter(Boolean)
+    // Off the server's thread, and around the folders macOS guards (server/guarded.ts): a walk of
+    // the home folder would otherwise wait on an "allow access?" dialog for Desktop or Documents.
     const found: string[] = []
-    const walk = (rel: string) => {
+    const walk = async (rel: string) => {
       if (found.length >= 20_000) return
+      const abs = path.join(dir, rel)
+      if (!readable(abs)) return
       let list: fs.Dirent[] = []
-      try { list = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }) } catch { return }
+      try { list = await fs.promises.readdir(abs, { withFileTypes: true }) } catch { return }
       for (const d of list) {
         const p = rel ? `${rel}/${d.name}` : d.name
-        if (d.isDirectory()) { if (d.name !== 'node_modules' && d.name !== '.git') walk(p) } else found.push(p)
+        if (d.isDirectory()) { if (d.name !== 'node_modules' && d.name !== '.git') await walk(p) } else found.push(p)
       }
     }
-    walk('')
-    return found
+    return walk('').then(() => found)
   })
   lists.set(dir, { at: Date.now(), files })
   return files
