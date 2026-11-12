@@ -10,11 +10,11 @@ import { execFile } from 'node:child_process'
 
 const HOME = os.homedir()
 // Guarded whole, or (EACH) each folder in it on its own: ~/Library holds other apps' data (Library/
-// Photos), some of which macOS asks about, and ls of one says nothing of the next. The media
-// folders are guarded whole: a recent macOS asks before even listing ~/Movies or ~/Music. So is the Trash.
-const WHOLE = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Movies', 'Music', '.Trash', 'Library/Mobile Documents', 'Library/CloudStorage'].map((d) => path.join(HOME, d))
+// Photos), and ~/Pictures its Photos library: macOS asks about some, and ls of one says nothing of
+// the next. Movies and Music are guarded whole: a recent macOS asks before even listing them. So is the Trash.
+const WHOLE = ['Desktop', 'Documents', 'Downloads', 'Movies', 'Music', '.Trash', 'Library/Mobile Documents', 'Library/CloudStorage'].map((d) => path.join(HOME, d))
 // Most specific first: each app's container in Library/Containers is guarded on its own.
-const EACH = [...['Library/Containers', 'Library/Group Containers', 'Library'].map((d) => path.join(HOME, d)), '/Volumes']
+const EACH = [...['Library/Containers', 'Library/Group Containers', 'Library', 'Pictures'].map((d) => path.join(HOME, d)), '/Volumes']
 
 // The guarded folder p is in (or is), or null.
 export function guardOf(p: string): string | null {
