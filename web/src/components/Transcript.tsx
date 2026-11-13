@@ -16,7 +16,7 @@ import { highlight, langOfPath } from '../highlight.ts'
 import { CARD_W, GUTTER_GAP, Margin, focusPassage, rangesOfNote } from './Margin.tsx'
 import { StateMark, TasksDialog, lastDraw, stateLabel } from './TasksDialog.tsx'
 import { minutes } from '../cache.ts'
-import { AgentsIcon, MailIcon, BlockIcon, CheckIcon, ChevronIcon, DashIcon, XIcon, FileIcon, GlobeIcon, ListIcon, PencilIcon, SearchIcon, OpenIcon, TerminalIcon, TimerIcon, ToolIcon, TrashIcon } from './Icons.tsx'
+import { AgentsIcon, MailIcon, BlockIcon, CheckIcon, ChevronIcon, CopyIcon, DashIcon, XIcon, FileIcon, GlobeIcon, ListIcon, PencilIcon, SearchIcon, OpenIcon, TerminalIcon, TimerIcon, ToolIcon, TrashIcon } from './Icons.tsx'
 import { shortPath } from './DirPicker.tsx'
 import { ArtifactIcon, ArtifactLine, SHOW_ARTIFACT, showArtifactIn } from './Artifacts.tsx'
 import { revealArtifactNote } from './ArtifactNotes.tsx'
@@ -606,10 +606,13 @@ function TaskFoot({ note, onOpen }: { note?: string; onOpen?(): void }) {
 function BlockView({ sid, b, msg, f, synthetic, ts }: { sid: string; b: Block; msg: string; f: Folded; synthetic?: boolean; ts?: number }) {
   if (b.type === 'text') {
     if (synthetic) return <div className="notice info md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} />
-    // The time sits under the text, out of it, so it takes no part in comments on the text.
+    // The time and the copy button sit under the text, out of it, so they take no part in comments on the text.
     return <>
       <AssistantMessage sid={sid} msg={msg} text={b.text} items={f.items} sent={f.sent.get(msg) ?? []} reacts={f.reacts.get(msg)} />
-      {ts != null && <MsgTime ts={ts} className="agent" />}
+      <div className="agent-actions">
+        {ts != null && <MsgTime ts={ts} />}
+        <CopyMarkdown text={b.text} />
+      </div>
     </>
   }
   if (b.type === 'thinking') return <details className="thinking" open><summary>Thinking</summary><div className="md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} /></details>
@@ -679,6 +682,19 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
 function MsgTime({ ts, className, title }: { ts: number; className?: string; title?: string }) {
   return <time className={`msg-time${className ? ` ${className}` : ''}`} dateTime={new Date(ts).toISOString()} title={title ?? fullTime(ts)}>{clockTime(ts)}</time>
 }
+// Copies a message as its markdown source, as the agent wrote it or as you sent it.
+function CopyMarkdown({ text }: { text: string }) {
+  const [done, setDone] = useState(false)
+  const t = useRef(0)
+  useEffect(() => () => clearTimeout(t.current), [])
+  const copy = () => void navigator.clipboard.writeText(text).then(() => {
+    setDone(true)
+    clearTimeout(t.current)
+    t.current = window.setTimeout(() => setDone(false), 1200)
+  })
+  return <button className={`icon-btn copy-md${done ? ' on' : ''}`} title={done ? 'Copied' : 'Copy as markdown'} onClick={copy}>{done ? <CheckIcon size={13} /> : <CopyIcon size={13} />}</button>
+}
+
 const duration = (ms: number) => ms < 60_000 ? `${Math.round(ms / 1000)}s` : ms < 3_600_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`
 
 function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> }) {
@@ -756,6 +772,7 @@ function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> })
     </div>
       <div className="user-actions">
         <MsgTime ts={e.ts} />
+        <CopyMarkdown text={e.parts.filter(plain).map((p) => p.text.trim()).filter(Boolean).join('\n\n')} />
         {!state.share && <>
           <button className="icon-btn" title="Edit" disabled={busy} onClick={() => setEditing(true)}><PencilIcon size={13} /></button>
           {confirm

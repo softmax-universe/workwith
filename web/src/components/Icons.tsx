@@ -37,6 +37,7 @@ export const ChevronIcon = (p: P) => <Svg {...p}><path d="M6 3.5l4.5 4.5L6 12.5"
 export const GearIcon = (p: P) => <Svg {...p}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" /><circle cx="8" cy="8" r="4.2" /></Svg>
 export const CommentIcon = (p: P) => <Svg {...p}><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></Svg>
 export const UndoIcon = (p: P) => <Svg {...p}><path d="M5 6.5H10a3 3 0 010 6H7" /><path d="M7 4L4.5 6.5 7 9" /></Svg>
+export const CopyIcon = (p: P) => <Svg {...p}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h.5" /></Svg>
 export const TrashIcon = (p: P) => <Svg {...p}><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></Svg>
 export const StarIcon = (p: P) => <Svg {...p}><path d="M8 1.8l1.85 3.95 4.3.55-3.15 2.95.8 4.25L8 11.4l-3.8 2.1.8-4.25L1.85 6.3l4.3-.55z" /></Svg>
 export const PanelIcon = (p: P) => <Svg {...p}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M10 3v10" /></Svg>
