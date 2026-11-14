@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify'
 import type { ImageRef } from '../../shared/types.ts'
 import { MEDIA_URL, embedOf, mediaKind } from '../../shared/media.ts'
 import { api, localId, media, state } from './store.ts'
+import { frameBoxHtml } from './frameZoom.tsx'
 
 export const marked = new Marked(
   markedHighlight({ emptyLangClass: 'hljs', langPrefix: 'hljs language-', highlight: (code, lang) => linkUrls(highlight(code, lang)) }),
@@ -80,8 +81,8 @@ function mediaHtml(href: string, alt: string): string | false {
   switch (mediaKind(href)) {
     case 'video': return `<video class="media-video" src="${src}" controls preload="metadata" playsinline></video>`
     case 'audio': return `<audio class="media-audio" src="${src}" controls preload="metadata"></audio>`
-    case 'pdf': return `<iframe class="media-frame" src="${src}" aria-label="${label}"></iframe>`
-    case 'page': return `<iframe class="media-frame" src="${src}" sandbox="allow-scripts allow-popups" aria-label="${label}"></iframe>`
+    case 'pdf': return frameBoxHtml(`<iframe class="media-frame" src="${src}" aria-label="${label}"></iframe>`)
+    case 'page': return frameBoxHtml(`<iframe class="media-frame" src="${src}" sandbox="allow-scripts allow-popups" aria-label="${label}"></iframe>`)
     case 'file': return MEDIA_URL.test(href) ? `<a class="media-file" href="${src}" target="_blank">${escapeHtml(alt || 'Open the file')}</a>` : false
     default: return false
   }

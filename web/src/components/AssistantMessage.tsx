@@ -25,6 +25,7 @@ import { EmojiPicker } from './EmojiPicker.tsx'
 import { openFile } from './FileBrowser.tsx'
 import { ReviewCard } from './Review.tsx'
 import { ArtifactFrame } from './Artifacts.tsx'
+import { FrameBox } from '../frameZoom.tsx'
 import { focusPassage, onPassage } from './Margin.tsx'
 import { WithPastes } from './Paste.tsx'
 import { lastEmoji, topEmoji, usedEmoji } from '../emoji.ts'
@@ -665,7 +666,7 @@ function Pieces({ c, pieces }: { c: Ctx; pieces: Piece[] }) {
     switch (p.kind) {
       case 'html': return <div key={p.block} data-block={p.block} className="md-block" dangerouslySetInnerHTML={{ __html: p.html }} />
       case 'ask': return <AskCard key={p.block} c={c} ask={p.ask} block={p.block} />
-      case 'artifact': return <div key={p.block} data-block={p.block} className="md-block"><ArtifactFrame target={{ artifact: p.name, v: p.v }} inline /></div>
+      case 'artifact': return <div key={p.block} data-block={p.block} className="md-block"><FrameBox><ArtifactFrame target={{ artifact: p.name, v: p.v }} inline /></FrameBox></div>
       case 'answer': return <div key={p.block} className="answer-block"><Pieces c={c} pieces={p.pieces} /></div>
       case 'details': return (
         <details key={p.block} className="more" open={opened.has(`${c.sid}:${c.msg}:${p.block}`)}
