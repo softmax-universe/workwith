@@ -1,5 +1,5 @@
 // A session's face in the sidebar: its project's icon (server/projecticons.ts), an image or an emoji.
-// The icon rocks ±10° while the session works, as the tab icon of an agent's desk does (favicon.tsx),
+// An accent arc turns around the icon while the session works (styles.css: proj-ring),
 // and wears the critter's badge when the session waits on you, finished unseen, or failed; a starred
 // one glows. With no icon (none yet, or 'none' set by hand) it is the critter.
 

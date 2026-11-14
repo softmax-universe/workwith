@@ -1769,16 +1769,17 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .comment-offer:hover { border-color: var(--accent); color: var(--accent); }
 
 /* A session's project icon (components/ProjectIcon.tsx): an image or an emoji, with the critter's badge.
-   While it works it rocks ±10°, in the period of the tab icon's rocking (favicon.tsx: ROCK, 12 frames of 100ms). */
+   While it works an accent arc turns around it (in the rows and in the dock of icons below them). */
 .proj-face { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; line-height: 0; }
 .proj-icon { width: 86%; height: 86%; object-fit: contain; border-radius: 4px; transform-origin: 50% 55%; }
 .proj-emoji { display: flex; align-items: center; justify-content: center; line-height: 1; width: auto; height: auto; }
-.proj-face.st-working .proj-icon { animation: proj-rock 1.2s ease-in-out infinite; }
-.calm .proj-face.st-working .proj-icon { animation: none; }
+.proj-face.st-working::before { content: ''; position: absolute; left: 50%; top: 50%; width: calc(100% + 5px); aspect-ratio: 1; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); border-right-color: var(--accent); pointer-events: none; animation: proj-ring 1.6s linear infinite; }
+.calm .proj-face.st-working::before { animation: none; }
+@media (prefers-reduced-motion: reduce) { .proj-face.st-working::before { animation: none; } }
 .proj-face.starred .proj-icon { filter: drop-shadow(0 0 2px #ffc83d) drop-shadow(0 0 1px #ffc83d); }
 .proj-face.st-new .proj-icon, .proj-face.st-idle .proj-icon { opacity: .9; }
 .proj-badge { position: absolute; right: -3px; top: -3px; min-width: 11px; height: 11px; padding: 0 2px; border-radius: 3px; font: 700 9px/11px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 1.5px var(--panel); }
-@keyframes proj-rock { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(10deg); } 75% { transform: rotate(-10deg); } }
+@keyframes proj-ring { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
 .compact-side .row .proj-face { width: 20px !important; height: 22px !important; }
 
 /* The others in a session (Sidebar.tsx: Others): in it now with a green ring (writing: it pulses), wrote
