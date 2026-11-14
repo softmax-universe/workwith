@@ -1023,6 +1023,10 @@ h1.rename { cursor: text; border-radius: 5px; } h1.rename:hover { background: rg
 .mail-pop .inbox-on { white-space: normal; }
 .mail-pop.held .inbox-on { color: var(--warn); }
 .mail-pop .mail-text { max-height: 40vh; margin-top: 4px; }
+/* The agent said the task is done (<task-done/>): a big button under the last message, as wide as the messages, archives the session. */
+.archive-done { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 100px; margin: 8px 0 4px; border: 1px solid color-mix(in srgb, var(--ok, #3fb950) 40%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--ok, #3fb950) 8%, var(--card)); color: var(--text); font-size: calc(17px * var(--fs, 1)); font-weight: 600; cursor: pointer; }
+.archive-done svg { color: var(--ok, #3fb950); }
+.archive-done:hover { background: color-mix(in srgb, var(--ok, #3fb950) 16%, var(--card)); }
 .composer-row { display: flex; gap: 8px; align-items: flex-end; }
 /* A long attachment name must not keep the field wide and push Stop and Send off the screen. */
 .composer-row .rich-input { min-width: 0; }
@@ -1804,14 +1808,14 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .row-person + .row-person { margin-left: -4px; }
 .row-person .who-badge { box-shadow: 0 0 0 1.5px var(--panel); }
 .row-person.recent, .row-person.active { opacity: 1; }
-.row-person.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--good, #3fb950); }
+.row-person.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--ok, #3fb950); }
 .row-person.live .who-badge { animation: who-pulse 1.4s ease-in-out infinite; }
 .row-people-more { font-size: calc(10.5px * var(--fs, 1)); color: var(--muted); margin-left: 3px; }
 .face-who { position: absolute; left: 0; top: 0; line-height: 0; }
 .face-who .who-badge { box-shadow: 0 0 0 1.5px var(--panel); }
-.face-who.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--good, #3fb950); }
+.face-who.active .who-badge { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--ok, #3fb950); }
 .face-who.live .who-badge { animation: who-pulse 1.4s ease-in-out infinite; }
-@keyframes who-pulse { 50% { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 4px var(--good, #3fb950); } }
+@keyframes who-pulse { 50% { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 4px var(--ok, #3fb950); } }
 .calm .row-person.live .who-badge, .calm .face-who.live .who-badge { animation: none; }
 .head-critter .proj-badge { min-width: 16px; height: 16px; font-size: 12px; line-height: 16px; border-radius: 4px; }
 

@@ -12,6 +12,8 @@
 //                                       path on each line (the Files tab, web/src/review.ts)
 //
 //   <autopilot-stop reason="…"/>       Claude ends autopilot (server/autopilot.ts); not shown
+//   <task-done/>                        Claude thinks the task is done: its critter gets a check
+//                                       and the composer a big Archive button; not shown
 //
 // Markdown works inside, and sections nest. Lines inside code fences are left
 // alone. A section still open at the end (a reply still streaming) holds what
@@ -29,6 +31,7 @@ const OPEN = new RegExp(`^\\s*<(${TAGS})((?:\\s+[\\w-]+(?:\\s*=\\s*(?:"[^"]*"|'[
 const CLOSE = new RegExp(`^(.*?)</(${TAGS})>\\s*$`)
 const LEGACY = /^:::\s*(summary|more|consider)\b\s*(.*)$/
 const STOP = /^\s*<autopilot-stop((?:\s+[\w-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>/]+))?)*)\s*\/?>\s*(?:<\/autopilot-stop>\s*)?$/
+const DONE = /^\s*<task-done\s*\/?>\s*(?:<\/task-done>\s*)?$/
 const LEGACY_KIND: Record<string, SectionKind> = { summary: 'answer', more: 'details', consider: 'consider' }
 
 function attrsOf(s: string): Record<string, string> {
@@ -60,7 +63,7 @@ export function segmentsOf(text: string): Segment[] {
     }
     if (fence) { buf.push(line); continue }
     let m: RegExpExecArray | null
-    if (STOP.test(line)) continue
+    if (STOP.test(line) || DONE.test(line)) continue
     if ((m = OPEN.exec(line))) {
       open(m[1] as SectionKind, attrsOf(m[2]))
       let rest = m[3]
@@ -104,6 +107,17 @@ export function autopilotStop(text: string): string | null {
     if (m) return attrsOf(m[1]).reason?.trim() ?? ''
   }
   return null
+}
+
+// Whether the text has a <task-done/> line outside code fences.
+export function taskDone(text: string): boolean {
+  let fence = ''
+  for (const line of text.split('\n')) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length && !line.trim().slice(f.length)))) { fence = fence ? '' : f; continue }
+    if (!fence && DONE.test(line)) return true
+  }
+  return false
 }
 
 // An <ask> section as an Ask. `index` counts the asks before it in the message.

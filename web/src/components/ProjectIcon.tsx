@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SessionMeta } from '../../../shared/types.ts'
 import { api, changed, machineOf, media, state, useStore } from '../store.ts'
 import { fatigue, uploadImage } from '../util.ts'
-import { BADGES, Mascot } from './Mascot.tsx'
+import { badgeOf, Mascot } from './Mascot.tsx'
 import { FolderIcon } from './Icons.tsx'
 
 // Each folder's icon URL (null: none), by machine, folder and quick; asked of the server in batches.
@@ -93,9 +93,9 @@ export function SessionFace({ s, size, title }: Props) {
   const icon = useProjectIcon(s.cwd, machine)
   const [broken, setBroken] = useState<string | null>(null)
   if (!icon || ('url' in icon && broken === icon.url)) {
-    return <Mascot status={s.status} look={s.look} fatigue={fatigue(s.context.used, s.context.window)} size={size} title={title} child={!!s.parentId} review={!!s.pendingReviews} starred={s.starred} />
+    return <Mascot status={s.status} look={s.look} fatigue={fatigue(s.context.used, s.context.window)} size={size} title={title} child={!!s.parentId} review={!!s.pendingReviews} done={!!s.taskDone} starred={s.starred} />
   }
-  const badge = s.status === 'asking' && s.pendingReviews ? { ...BADGES.asking!, bg: '#e08a3c' } : BADGES[s.status]
+  const badge = badgeOf(s.status, !!s.pendingReviews, !!s.taskDone)
   return (
     <span className={`proj-face st-${s.status}${s.starred ? ' starred' : ''}`} style={{ width: size, height: size * 20 / 18 }} title={title} role="img" aria-label={title ?? s.status}>
       {'url' in icon

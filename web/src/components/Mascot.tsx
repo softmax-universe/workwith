@@ -12,15 +12,16 @@ import { inkOn } from '../../../shared/appearance.ts'
 
 
 // body: a colour of your own, in place of the look's; alert: whose badge to show, if not its own;
-// review: an open item is a review the agent asked for, so its "?" is orange.
-type Props = { status: Status; fatigue: number; size?: number; title?: string; look?: Look; body?: string; alert?: Status; child?: boolean; review?: boolean; starred?: boolean }
+// review: an open item is a review the agent asked for, so its "?" is orange;
+// done: the agent said the task is done (<task-done/>), so a finished turn shows a check.
+type Props = { status: Status; fatigue: number; size?: number; title?: string; look?: Look; body?: string; alert?: Status; child?: boolean; review?: boolean; done?: boolean; starred?: boolean }
 
 // Drawn back to front.
 const LAYERS = ['face', 'hair', 'neck', 'eyewear', 'hat', 'held'] as const
 
 const SHOE = '#ff2a2a'
 
-export function Mascot({ status, fatigue, size = 28, title, look = {}, body, alert, child, review, starred }: Props) {
+export function Mascot({ status, fatigue, size = 28, title, look = {}, body, alert, child, review, done, starred }: Props) {
   // Looks saved before 'teal' became the default may still say 'classic'.
   // The ids of the critter's shape and of the aura drawn from it: one each per critter on the page.
   const id = useId().replace(/:/g, '')
@@ -29,7 +30,7 @@ export function Mascot({ status, fatigue, size = 28, title, look = {}, body, ale
   const tired = fatigue >= 0.55
   const spent = fatigue >= 0.85
   const eyes = status === 'error' ? xEyes(ink) : spent && status !== 'working' ? sleepEyes(ink) : tired ? droopyEyes(ink) : openEyes(status, ink)
-  const badge = (alert ?? status) === 'asking' && review ? { ...BADGES.asking!, bg: '#e08a3c' } : BADGES[alert ?? status]
+  const badge = badgeOf(alert ?? status, review, done)
   const parts = LAYERS.map((slot) => ({ slot, ...partsOf(look[slot] ? (DRAWINGS[slot] as Record<string, any>)[look[slot]!] : undefined) }))
   return (
     <svg
@@ -85,6 +86,15 @@ export const BADGES: Partial<Record<Status, { ch: string; bg: string; fg: string
   asking: { ch: '?', bg: '#4c8dff', fg: '#fff' },
   waiting: { ch: '•', bg: '#3fb950', fg: '#fff' },
   error: { ch: '×', bg: '#e5534b', fg: '#fff' },
+}
+
+const DONE_BADGE = { ch: '✓', bg: '#3fb950', fg: '#fff' }
+
+// The badge for a status: an orange "?" when the open item is a review, a check when a finished turn said the task is done.
+export function badgeOf(status: Status, review?: boolean, done?: boolean) {
+  if (status === 'asking' && review) return { ...BADGES.asking!, bg: '#e08a3c' }
+  if (done && (status === 'waiting' || status === 'idle')) return DONE_BADGE
+  return BADGES[status]
 }
 
 const openEyes = (status: Status, INK: string) => status === 'new'

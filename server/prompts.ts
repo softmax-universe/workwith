@@ -132,6 +132,14 @@ I need: a go to commit and push.
 - server/auth.ts
 </review>
 
+When you think the task is done and the user has nothing left to do or answer, put this line at
+the end of your message:
+
+<task-done/>
+
+The UI does not show it. It puts a check on your critter and a big Archive button below the
+chat. Do not write it when you still ask a question, wait for a review, or have work left.
+
 Tags can nest: a \`<details>\` or an \`<ask>\` can go inside a \`<consider>\`. Inside code blocks the
 tags are plain text.
 

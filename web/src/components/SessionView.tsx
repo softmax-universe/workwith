@@ -542,6 +542,7 @@ function DismissedChip({ sid }: { sid: string }) {
 }
 
 // On a phone the word goes, for room.
+const MOD = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 const resolve = (n: number) => <>Resolve {n}<span className="not-phone not-narrow"> {n === 1 ? 'issue' : 'issues'}</span> ↑</>
 
 export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.RefObject<((files: File[]) => void) | null> }) {
@@ -574,6 +575,8 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
   const mine = isCommand ? 1 : queuedParts(m.id).length
   const held = isCommand ? 0 : [...(m.held ?? []), ...othersLive(m)].reduce((a, h) => a + h.parts.length, 0)
   const n = mine + held
+  // The agent said the task is done (<task-done/>): Cmd+Enter with nothing to send archives the session.
+  const archivable = !!m.taskDone && m.kind === 'worker' && !m.archived && !busy && !n && !c.text.trim() && !c.images.length
   // A send that would re-cache a big, expired context waits for "Send anyway" in the bar above.
   const now = useNow()
   const cache = cacheOf(m, now)
@@ -638,11 +641,14 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
           onChange={(text) => setComposer(m.id, { text })}
           images={c.images}
           onImages={(images) => setComposer(m.id, { images })}
-          placeholder={m.kind === 'lead' ? 'Message the lead' : `Message ${agentName()}`}
+          placeholder={archivable ? `Hit ${MOD}+Enter with this blank, to archive it` : m.kind === 'lead' ? 'Message the lead' : `Message ${agentName()}`}
           // A session you open is ready to type in; on a touch screen the keyboard would cover it.
           autoFocus={!matchMedia('(pointer: coarse)').matches}
           onSubmit={() => send()}
-          onKey={slash.onKey}
+          onKey={(e) => {
+            if (archivable && e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.altKey) { void closeSession(m.id); return true }
+            return slash.onKey(e)
+          }}
           minRows={1}
           machine={machineOf(m.id)}
           uploadDir={m.cwd}

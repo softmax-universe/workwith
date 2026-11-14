@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { Anchor, Block, Event, ImageRef, Part, Task } from '../../../shared/types.ts'
-import { addDraft, agentName, api, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
+import { addDraft, agentName, api, closeSession, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
 import { mediaKind } from '../../../shared/media.ts'
 import { anchorFromRange, passageQuote, setHighlights } from '../anchoring.ts'
 import { clockTime, fullTime, holdKeyboard, renderInline, renderMd, renderText } from '../util.ts'
@@ -338,6 +338,9 @@ export function Transcript({ sid }: { sid: string }) {
             : <Activity key={g.items[0].key} sid={sid} items={g.items} f={folded} live={i === groups.length - 1 && meta?.status === 'working'} />)}
           {streaming && <AssistantMessage sid={sid} msg="live" text={streaming} live />}
           {meta?.status === 'working' && !streaming && <WorkingDots />}
+          {/* The agent said the task is done (<task-done/>): a big button under its last message archives the session. */}
+          {!st.share && meta?.taskDone && meta.kind === 'worker' && !meta.archived && meta.status !== 'working' && meta.status !== 'permission' &&
+            <button className="archive-done" onClick={() => void closeSession(sid)}><CheckIcon size={18} /> Click to archive this session</button>}
         </div>
         {!st.share && <Margin sid={sid} inner={inner} column={column} gutter={gutter} events={events} />}
       </div>

@@ -51,6 +51,7 @@ export type SessionMeta = {
   pendingAsks: number
   pendingCritical?: number   // of pendingAsks: the items marked critical
   pendingReviews?: number    // of pendingAsks: the reviews the agent asked for (<review>)
+  taskDone?: boolean         // Claude's last turn says the task is done (<task-done/>, shared/blocks.ts)
   lastText: string        // the tail of the last thing Claude said, for overviews
   error: string | null
   archived: boolean
