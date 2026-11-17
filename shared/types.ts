@@ -64,6 +64,7 @@ export type SessionMeta = {
   // Claude renamed a session you had named: your name, to undo to; and a name of Claude's you undid.
   titleBefore?: string
   titleUndone?: string
+  movedFrom?: string      // the folder it left with move_to_folder, until its agent has heard
   order?: number          // its place among its siblings in the sidebar, once dragged there
   group?: string          // the sidebar group you put it in (Settings.groups); a child starts in its parent's
   // The prompt cache: when the last API call started (at the latest), and its TTL (ms). See shared/cache.ts.

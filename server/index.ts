@@ -17,7 +17,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process'
 import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
-import { findHistory, importTranscript, lastCache, listDirs, listHistory } from './history.ts'
+import { findHistory, importTranscript, lastCache, listDirs, listHistory, moveTranscript } from './history.ts'
 import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
@@ -493,6 +493,11 @@ function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string
   if (slashCommand(parts)) return {}
   if (s.meta.kind === 'lead') return { hidden: board() }
   const out: string[] = []
+  if (s.meta.movedFrom) {
+    out.push(`[Codinger] This session moved, as you asked with move_to_folder. Your working directory is now ${s.meta.cwd}; it was ${s.meta.movedFrom}. Your notes file is now ${notesPath(s.meta)}.`)
+    delete s.meta.movedFrom
+    metaChanged()
+  }
   // Tasks that ended since it last heard; the message keeps their ids, to show them.
   const ended = tasksEnded(s)
   out.push(...ended.map(endText))
@@ -752,6 +757,48 @@ function mcpTool(id: string): Tool {
       s.setMcp(configsFor(m.cwd, m.mcp.on))
       metaChanged()
       return `Turned on ${server.name} (${server.tools} tools). Its tools are available from your next step.`
+    },
+  }
+}
+
+// A session takes its conversation and its notes to another folder. Its tasks stay where they run.
+function moveSession(s: Session, cwd: string) {
+  const m = s.meta, from = m.cwd, notes = notesPath(m)
+  try {
+    if (m.started) moveTranscript(m.claudeSessionId, cwd)
+  } catch (e) { return s.notice(`Could not move to ${cwd}: ${(e as Error).message}`, 'error') }
+  m.cwd = cwd
+  m.movedFrom ??= from
+  try {
+    if (fs.existsSync(notes) && !fs.existsSync(notesPath(m))) { notesDir(m); fs.copyFileSync(notes, notesPath(m)); fs.rmSync(notes) }
+  } catch { /* the notes stay in the old folder */ }
+  s.notice(`Moved from ${from} to ${cwd}. The next message continues this conversation there.`)
+  metaChanged()
+}
+
+function moveTool(id: string): Tool {
+  return {
+    name: 'move_to_folder',
+    description: 'Move this session to another directory: when this turn ends, its working directory becomes that one, and the conversation and your notes go with it. Use it when the work moved (a new repository, another checkout) and the user wants to go on there with this context. Tasks you started keep their directory.',
+    inputSchema: {
+      type: 'object', required: ['cwd'],
+      properties: {
+        cwd: { type: 'string', description: 'Absolute or ~ path to the directory' },
+        mkdir: { type: 'boolean', description: 'Make the directory if it does not exist' },
+      },
+    },
+    run: (args) => {
+      const s = get(id)
+      const raw = String(args?.cwd ?? '').trim()
+      if (!raw) return 'Give a directory.'
+      const cwd = path.resolve(expandHome(raw))
+      if (cwd === path.resolve(s.meta.cwd)) return `You are already in ${cwd}.`
+      if (args?.mkdir && !fs.existsSync(cwd)) {
+        try { fs.mkdirSync(cwd, { recursive: true }) } catch (e) { return `Can't create ${cwd}: ${(e as Error).message}` }
+      }
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return `Not a directory: ${cwd}`
+      s.whenAtRest(() => moveSession(s, cwd))
+      return `Codinger moves this session to ${cwd} when this turn ends. Until then you are still in ${s.meta.cwd}: use absolute paths, and end the turn soon. Your next turn runs there with this conversation.`
     },
   }
 }
@@ -1902,7 +1949,7 @@ const server = http.createServer(async (req, res) => {
       return await handleMcp(req, res, lead ? [...tools, lookTool(lead.meta.id)] : tools)
     }
     const look = url.pathname.startsWith(`/mcp/${MCP_TOKEN}/look/`) && url.pathname.split('/').pop()
-    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look), ...(settings.issues?.repo ? [issueTool(look)] : [])])
+    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), moveTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look), ...(settings.issues?.repo ? [issueTool(look)] : [])])
     // The web UI asks this first; here it is a machine's own page.
     if (url.pathname === '/_remote/whoami') return send(res, 200, { web: false })
     if (url.pathname.startsWith('/api/remote/m/') || url.pathname.startsWith('/api/remote/machines') || /^\/api\/remote\/push\/(key|subscribe|unsubscribe)$/.test(url.pathname)) return await remoteProxy(req, res, url)

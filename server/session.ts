@@ -80,6 +80,7 @@ export class Session {
   private costSeen = new Map<string, number>()  // message id → dollars counted, as its lines come in
   private seqFrom = 1  // the first number for an empty transcript
   private hooks: Hooks
+  private atRest: (() => void) | null = null
   private launch: () => Launch
   // The last server stopped mid-turn without handing the process on (a crash, a forced stop).
   cut = false
@@ -151,6 +152,7 @@ export class Session {
     m.running = !!this.proc
     this.scheduleSleep()
     this.hooks.meta(this)
+    this.rest()
   }
 
   // A finished session ends its process after a while; the next message resumes it.
@@ -305,6 +307,18 @@ export class Session {
   setMcp(servers: Record<string, unknown>) {
     if (!this.proc || this.stopping) return
     this.write({ type: 'control_request', request_id: `mcp-${randomUUID()}`, request: { subtype: 'mcp_set_servers', servers } })
+  }
+
+  // Do something that needs the session at rest with no process, like a move to another
+  // folder (a process keeps the folder it started in): at once, or when the turn ends.
+  whenAtRest(then: () => void) { this.atRest = then; this.rest() }
+
+  private rest() {
+    if (!this.atRest || this.outstanding || this.pending.size || this.background || this.meta.compacting) return
+    if (this.proc) { if (!this.stopping) this.stop(); return }
+    const then = this.atRest
+    this.atRest = null
+    then()
   }
 
   stop() {
