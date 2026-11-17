@@ -194,8 +194,9 @@ export type Held = { id: string; by: Person | null; parts: Part[]; ts: number }
 // What one person is writing in a session now (id: their login): their comments, answers
 // and message, sent up as they type, so the others see them. The next send from anyone
 // takes everybody's along. rev: the browser's version of it (a time), so a late copy of
-// what already went can't come back.
-export type Live = Held & { rev: number }
+// what already went can't come back. client: which of the person's browsers it is from; each
+// has its own copy, and a send from one takes along what the others hold (server/index.ts 'send').
+export type Live = Held & { rev: number; client?: string }
 
 export type Block =
   | { type: 'text'; text: string }

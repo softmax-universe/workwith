@@ -356,6 +356,17 @@ function reportDrafting() {
 // so the others at the desk see it, and the next send from anyone takes it along.
 // What went up last, by session: the parts, and the drafts and message they came from,
 // so a send that took them clears just those (onServer 'taken').
+// This browser's name for the server: what you wrote in another browser (a phone, a laptop) is
+// not this one's, so a send from here takes it along like someone else's.
+const CLIENT = (() => {
+  try {
+    const had = localStorage.getItem('codinger.client')
+    if (had) return had
+    const id = Math.random().toString(36).slice(2, 10)
+    localStorage.setItem('codinger.client', id)
+    return id
+  } catch { return Math.random().toString(36).slice(2, 10) }
+})()
 type Pushed = { rev: number; json: string; drafts: Map<string, string>; text: string; images: string }
 const pushed = new Map<string, Pushed[]>()
 let liveTimer: number | undefined
@@ -374,7 +385,7 @@ function reportLive() {
       if (json === (list.at(-1)?.json ?? '[]')) continue
       const rev = Math.max(Date.now(), (list.at(-1)?.rev ?? 0) + 1)
       pushed.set(m.id, [...list.slice(-9), { rev, json, drafts: new Map(draftsOf(m.id).map((d) => [d.id, JSON.stringify(d)])), text: command ? '' : c.text, images: command ? '[]' : JSON.stringify(c.images) }])
-      void api(`/api/sessions/${m.id}/live`, 'POST', { rev, parts }).catch(() => pushed.delete(m.id))
+      void api(`/api/sessions/${m.id}/live`, 'POST', { rev, parts, client: CLIENT }).catch(() => pushed.delete(m.id))
     }
   }, 250)
 }
@@ -387,8 +398,8 @@ function takenLive(sid: string, rev: number) {
   if (c.text === snap.text && JSON.stringify(c.images) === snap.images) state.composer[sid] = { text: '', images: [] }
   pushed.set(sid, (pushed.get(sid) ?? []).filter((p) => p.rev > rev))
 }
-// What the others at the desk are writing in a session now.
-export const othersLive = (m: SessionMeta | undefined): Live[] => (m?.live ?? []).filter((l) => l.id !== state.me?.login)
+// What the others at the desk are writing in a session now, and what you wrote in another browser.
+export const othersLive = (m: SessionMeta | undefined): Live[] => (m?.live ?? []).filter((l) => l.id !== state.me?.login || (!!l.client && l.client !== CLIENT))
 
 export function useStore(): State {
   useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l) }, () => version)
@@ -849,9 +860,12 @@ export async function sendQueued(sid: string, alsoDismiss: { key: string; label:
   // Held replies and the others' live ones alone make a message too: the server adds them (server/index.ts 'send').
   const m = state.sessions.find((s) => s.id === sid)
   if (!parts.length && !m?.held?.length && !othersLive(m).length) return
-  await api(`/api/sessions/${sid}/send`, 'POST', { parts, inbox: inboxOf(sid).map((i) => i.id) })
-  state.drafts[sid] = []
-  state.composer[sid] = { text: '', images: [] }
+  const went = new Map(draftsOf(sid).map((d) => [d.id, JSON.stringify(d)]))
+  const c = composerOf(sid)
+  await api(`/api/sessions/${sid}/send`, 'POST', { parts, inbox: inboxOf(sid).map((i) => i.id), client: CLIENT })
+  // What you wrote or changed while the message was on its way stays.
+  state.drafts[sid] = draftsOf(sid).filter((d) => went.get(d.id) !== JSON.stringify(d))
+  if (composerOf(sid).text === c.text && JSON.stringify(composerOf(sid).images) === JSON.stringify(c.images)) state.composer[sid] = { text: '', images: [] }
   changed()
 }
 

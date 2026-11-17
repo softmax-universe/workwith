@@ -865,6 +865,9 @@ function SentReview({ p, sid }: { p: Extract<Part, { kind: 'review' }>; sid?: st
     {(['approve', 'reject'] as const).map((v) => files(v).length > 0 && (
       <div key={v} className={`sent-dismiss sent-verdict ${v}`}>{v === 'approve' ? <CheckIcon size={11} /> : <XIcon size={11} />} {files(v).map((f) => baseName(f.rel)).join(' · ')}</div>
     ))}
+    {p.files.filter((f) => !f.path && f.text?.trim()).map((f, i) => (
+      <div key={`n${i}`} className="sent-line">{f.verdict && <span className={`rv-word ${f.verdict}`}>{f.verdict === 'approve' ? 'go' : 'no go'}</span>} {f.text}</div>
+    ))}
     {p.comments.map((c, i) => (
       <div key={i} className={`sent-line ${c.verdict}`}>
         <button className="link mono" onClick={() => open(c.path, c.old ? undefined : c.line)}>{baseName(c.rel)}:{c.line}{c.end > c.line ? `–${c.end}` : ''}</button>

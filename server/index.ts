@@ -508,7 +508,7 @@ function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string
 // signed with a name; the first time a name shows up in a session, Claude also learns
 // whose login it is. Kept in memory: a restart tells it again.
 const introduced = new Map<string, Set<string>>()
-// "<session> <login>" → the rev of that person's live drafts that a send last took.
+// "<session> <login> <client>" → the rev of that person's live drafts in that browser that a send last took.
 const taken = new Map<string, number>()
 function speakerNote(s: Session, parts: Part[]): string {
   const seen = introduced.get(s.meta.id) ?? new Set<string>()
@@ -1774,7 +1774,12 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const command = !!slashCommand(own)
       const held = command ? [] : s.meta.held ?? []
       const live = command ? [] : s.meta.live ?? []
-      let p: Part[] = [...held.flatMap((h) => h.parts), ...live.filter((l) => l.id !== me?.login).flatMap((l) => l.parts), ...own]
+      // What this person wrote in another browser (a phone, a laptop) goes along too, but not a
+      // reply that is in this message as well. This browser's own copy is the message itself.
+      const client = typeof body.client === 'string' ? body.client : undefined
+      const same = new Set(own.map((x) => JSON.stringify(x)))
+      const along = live.filter((l) => l.id !== me?.login || l.client !== client).flatMap((l) => l.id === me?.login ? l.parts.filter((x) => !same.has(JSON.stringify(x))) : l.parts)
+      let p: Part[] = [...held.flatMap((h) => h.parts), ...along, ...own]
       // Messages from other sessions that waited on it go in with this one.
       if (s.meta.pendingCritical) p = [...p, ...takeMail(s)]
       // The lead's drafts that went with your reply.
@@ -1789,7 +1794,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (held.length) { s.meta.held = []; metaChanged() }
       if (live.length) {
         for (const l of live) {
-          taken.set(`${s.meta.id} ${l.id}`, l.rev)
+          taken.set(`${s.meta.id} ${l.id} ${l.client ?? ''}`, l.rev)
           broadcast({ type: 'taken', sessionId: s.meta.id, login: l.id, rev: l.rev })
         }
         s.meta.live = []; metaChanged()
@@ -1802,10 +1807,12 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (!me) throw new HttpError(400, 'workwith does not know who you are')
       const rev = Number(body.rev)
       // A copy from before a send that already took it.
-      if (!(rev > (taken.get(`${s.meta.id} ${me.login}`) ?? 0))) return send(res, 200, { ok: true, stale: true })
+      const client = typeof body.client === 'string' ? body.client : undefined
+      if (!(rev > (taken.get(`${s.meta.id} ${me.login} ${client ?? ''}`) ?? 0))) return send(res, 200, { ok: true, stale: true })
       const parts = sign(Array.isArray(body.parts) ? body.parts : [], me)
-      const others = (s.meta.live ?? []).filter((l) => l.id !== me.login)
-      s.meta.live = parts.length ? [...others, { id: me.login, by: me, parts, ts: Date.now(), rev }] : others
+      // One copy for each browser of a person; a copy from before browsers had names goes.
+      const others = (s.meta.live ?? []).filter((l) => l.id !== me.login || (!!l.client && l.client !== client))
+      s.meta.live = parts.length ? [...others, { id: me.login, by: me, parts, ts: Date.now(), rev, ...(client ? { client } : {}) }] : others
       metaChanged()
       return send(res, 200, { ok: true })
     }
