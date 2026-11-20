@@ -99,7 +99,8 @@ export function saveSessions(all: () => SessionMeta[]) {
 
 // Settings this checkout gives every desk that runs it, under the desk's own (workwith.json
 // at the root): the issues repo, so each desk on main can file issues with no setup.
-// A desk turns one off with null in its own settings ("issues": null).
+// A desk turns one off with null in its own settings ("issues": null). CODINGER_ISSUES=off
+// turns issues off on a desk that can't reach the repo, whatever the settings say.
 function checkoutDefaults(): Partial<Settings> {
   try { return JSON.parse(fs.readFileSync(new URL('../workwith.json', import.meta.url), 'utf8')) } catch { return {} }
 }
@@ -108,9 +109,17 @@ export function loadSettings(): Settings {
   let own: Record<string, unknown> = {}
   try { own = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch { /* none yet */ }
   const { masterAutoSend, ...s } = { ...checkoutDefaults(), ...own } as Settings & { masterAutoSend?: boolean }
+  if (/^(off|0|false|no)$/i.test(codingerEnv('ISSUES') ?? '')) s.issues = null
   return { ...s, leadAutoSend: (s.leadAutoSend ?? masterAutoSend ?? false) as boolean }
 }
-export function saveSettings(s: Settings) { fs.writeFileSync(SETTINGS, JSON.stringify(s, null, 1)) }
+// The issues setting is only ever set by hand: what is in the file stays, so a default from
+// workwith.json or CODINGER_ISSUES never gets written into it.
+export function saveSettings(s: Settings) {
+  const { issues: _ignored, ...rest } = s
+  let own: Record<string, unknown> = {}
+  try { own = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch { /* none yet */ }
+  fs.writeFileSync(SETTINGS, JSON.stringify({ ...rest, ...('issues' in own ? { issues: own.issues } : {}) }, null, 1))
+}
 
 // Context window per model. Claude Code only reports it in a turn's result, so
 // remember what each model reported and use it from the start next time.

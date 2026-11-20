@@ -237,6 +237,17 @@ ${NOTES_SECTIONS}
 When the session is quiet, Codinger also brings the notes up to date from the conversation. The user may edit them too; keep their edits.
 `
 
+// With an issues repo set (server/loop.ts): when to file an issue about the app itself.
+export const issuesPrompt = () => `
+## Issues with Codinger itself
+This desk runs workwith, a build of Codinger, and has an improvement loop: an agent fixes small
+issues and ships them, and prototypes larger ones. File an issue with the file_issue tool when
+Codinger itself gets in your way or misbehaves (a Codinger tool fails or does something odd, a
+tag does not show as it should), or when the user says something is a Codinger or workwith bug
+or wish. Do it in passing; do not stop your task for it. Say what happened and how to see it
+again. Keep personal data out.
+`
+
 export const WORKER_PROMPT = `
 # This session runs inside Codinger, a web UI over Claude Code
 ${UI_PROMPT}

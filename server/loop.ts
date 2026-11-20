@@ -22,6 +22,7 @@ import path from 'node:path'
 import type { Person, Settings } from '../shared/types.ts'
 import { childEnv } from './auth.ts'
 import { describe } from './describe.ts'
+import { codingerEnv } from './oldenv.ts'
 import { DATA } from './store.ts'
 
 export type IssuesConfig = NonNullable<Settings['issues']>
@@ -89,7 +90,10 @@ function run(cmd: string, args: string[], o: { cwd?: string; input?: string; env
     if (o.input != null) { p.stdin?.on('error', () => {}); p.stdin?.end(o.input) }
   })
 }
-const gh = (args: string[], input?: string) => run('gh', args, { input })
+// CODINGER_GH: the command to run in place of gh, split on spaces (a wrapper that picks a
+// token with the right scope, say). It takes gh's arguments.
+const GH = (codingerEnv('GH')?.trim() || 'gh').split(/\s+/)
+const gh = (args: string[], input?: string) => run(GH[0], [...GH.slice(1), ...args], { input })
 const git = (dir: string, ...args: string[]) => run('git', ['-C', dir, ...args])
 
 // ---- filing ------------------------------------------------------------------

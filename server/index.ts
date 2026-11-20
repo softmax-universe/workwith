@@ -18,7 +18,7 @@ import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
 import { findHistory, importTranscript, lastCache, listDirs, listHistory, moveTranscript } from './history.ts'
-import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
+import { LEAD_PROMPT, WORKER_PROMPT, issuesPrompt, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
 import { bumpEmoji, cleanEmojiUse } from '../shared/emoji.ts'
@@ -308,7 +308,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + (settings.issues?.repo ? issuesPrompt() : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -949,7 +949,7 @@ function spendTool(id: string): Tool {
 function issueTool(id: string): Tool {
   return {
     name: 'file_issue',
-    description: "File an issue about this app (workwith, the UI you run in) for its improvement loop: a bug, a rough edge, or a feature that would help you or the user. The loop builds tiny ones and ships them to main by itself, and prototypes larger ones. Say what is wrong or wanted, where, and how to see it. Keep personal data out: no names of real people, emails, home paths or session text that is not needed.",
+    description: "File an issue about this app (workwith, the UI you run in) for its improvement loop: a bug, a rough edge, or a feature that would help you or the user. File one when the app gets in your way or misbehaves, or when the user says something is a workwith bug. The loop builds tiny ones and ships them to main by itself, and prototypes larger ones. Say what is wrong or wanted, where, and how to see it. Keep personal data out: no names of real people, emails, home paths or session text that is not needed.",
     inputSchema: { type: 'object', required: ['title', 'body'], properties: { title: { type: 'string' }, body: { type: 'string', description: 'Markdown' } } },
     run: async (args) => `Filed: ${await fileIssue({ title: String(args?.title ?? ''), body: String(args?.body ?? ''), by: null, agent: { session: id } })}`,
   }
