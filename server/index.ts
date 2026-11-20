@@ -54,7 +54,7 @@ import { CLAUDE, authState, cancelLogin, childEnv, initAuth, needed as authNeede
 import { FALLBACK, billingNote, limitHit, noLogin, onBilling, onPlan, sessionEnv } from './billing.ts'
 import { deviceType, findDevice } from './device.ts'
 import { remoteCancelLink, remoteForget, remoteHub, remoteLink, remoteName, remoteOn, remoteNotify, remoteProxy, remoteStatus, remoteUpgrade, startRemote } from './remote.ts'
-import { startUpdates, updateModeChanged, updateNow, updatePrompt, updateStatus } from './update.ts'
+import { startUpdates, updateModeChanged, updateNow, updatePrompt, updatesManaged, updateStatus } from './update.ts'
 import {
   DATA, LEAD_DIR, LEAD_NOTES, OLD_LEAD_NOTES, appendEvent, deleteEvents, readEvents, expandHome, imageFile, knownWindow, leadRenamed, resolveModel, loadSessions, promptFile, loadSettings, saveImage, saveSessions, saveSettings,
 } from './store.ts'
@@ -1297,10 +1297,12 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return
   }
   // The update from origin/main (server/update.ts): now, or by an agent in Codinger's own checkout.
-  // An update runs git and npm, and the update agent a shell.
-  if (a === 'update' && NO_SHELL) throw new HttpError(403, 'Updates are off here (CODINGER_NO_SHELL)')
+  // An update runs git and npm, and the update agent a shell; a managed one (an updater outside
+  // the server installs it) only writes a request file, and has no update agent.
+  if (a === 'update' && NO_SHELL && !(updatesManaged() && id === 'now')) throw new HttpError(403, 'Updates are off here (CODINGER_NO_SHELL)')
   if (a === 'update' && method === 'POST' && id === 'now') return send(res, 200, await updateNow())
   if (a === 'update' && method === 'POST' && id === 'agent') {
+    if (updatesManaged()) throw new HttpError(403, 'Updates here are installed from outside workwith')
     const s = createSession({ cwd: ROOT, title: 'Update workwith' })
     deliver(s, [{ kind: 'text', text: updatePrompt() }])
     return send(res, 200, s.meta)

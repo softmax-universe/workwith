@@ -5,9 +5,22 @@
 // working, runs npm install when the packages changed, and restarts (the restart
 // builds the page). Anything else stops it with a reason: the page offers an agent
 // that does the update by hand.
+//
+// Managed (CODINGER_UPDATE_STATUS and CODINGER_UPDATE_REQUEST): the server runs a release
+// it cannot change, and an updater outside it (a root service on the host) looks for
+// updates and installs them. It writes what it found to the status file, as JSON:
+// {state: current} or {state: offer|updating|failed, behind, head, subject, why?}. The
+// server reads it, shows the same banner and follows the same setting, and asks for the
+// update by writing the request file. The updater restarts the server when it is done.
 
 import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 import type { UpdateMode, UpdateStatus } from '../shared/update.ts'
+import { codingerEnv } from './oldenv.ts'
+
+const STATUS_FILE = codingerEnv('UPDATE_STATUS')
+const REQUEST_FILE = codingerEnv('UPDATE_REQUEST')
+const MANAGED = !!(STATUS_FILE && REQUEST_FILE)
 
 const EVERY = 10 * 60_000
 const WIN = process.platform === 'win32'
@@ -37,6 +50,12 @@ const ancestor = (a: string, b: string) => git('merge-base', '--is-ancestor', a,
 
 export function startUpdates(opts: Opts) {
   o = opts
+  if (MANAGED) {
+    // Reading a small file costs nothing: look often, so the banner follows the updater.
+    setTimeout(() => void managedCheck(), 2_000).unref()
+    setInterval(() => void managedCheck(), 15_000).unref()
+    return
+  }
   if (process.env.CODINGER_NO_UPDATE) return
   setTimeout(() => void check(true), 20_000).unref()
   setInterval(() => void check(true), EVERY).unref()
@@ -68,6 +87,39 @@ async function check(fetch: boolean) {
   } finally { checking = false }
 }
 
+// What the updater outside says, as the setting wants it shown.
+let asked = 0  // when this server asked for the update; until the updater takes it up
+async function managedCheck() {
+  if (!o || checking) return
+  checking = true
+  try {
+    let f: Record<string, unknown>
+    try { f = JSON.parse(fs.readFileSync(STATUS_FILE!, 'utf8')) } catch { return } // not written yet
+    const info = { behind: Number(f.behind) || 0, head: String(f.head ?? ''), subject: String(f.subject ?? ''), managed: true as const }
+    if (f.state === 'updating') { asked = 0; return set({ state: 'updating', ...info }) }
+    // Asked, and the updater has not taken it up yet (it does within seconds): keep saying so.
+    if (asked && f.state !== 'current' && Date.now() - asked < 120_000) return
+    asked = 0
+    const mode = o.mode()
+    if (f.state === 'current' || mode === 'never') return set({ state: 'current' })
+    // A failed update stays failed until "Try again", or until there is a newer one to try.
+    if (f.state === 'failed') return set({ state: 'failed', ...info, why: String(f.why ?? 'unknown') })
+    if (mode === 'ask') return set({ state: 'offer', ...info })
+    if (o.busy()) return set({ state: 'waiting', ...info })
+    request(info)
+  } finally { checking = false }
+}
+
+function request(info: { behind: number; head: string; subject: string; managed?: true }) {
+  try {
+    fs.writeFileSync(REQUEST_FILE!, `${new Date().toISOString()} ${info.head}\n`)
+    asked = Date.now()
+    set({ state: 'updating', ...info })
+  } catch (e) {
+    set({ state: 'failed', ...info, why: `Could not ask for the update: ${e instanceof Error ? e.message : String(e)}` })
+  }
+}
+
 // What keeps a fast-forward from being safe here, if anything.
 async function blocker(): Promise<string | null> {
   const branch = await git('rev-parse', '--abbrev-ref', 'HEAD')
@@ -91,12 +143,19 @@ async function apply(info: { behind: number; head: string; subject: string }) {
 }
 
 // The setting changed: ask, install or forget the update that is there.
-export function updateModeChanged() { if (status.state !== 'updating') void check(false) }
+export function updateModeChanged() {
+  if (MANAGED) void managedCheck()
+  else if (status.state !== 'updating') void check(false)
+}
+
+// Updates here run no command of the server's own (CODINGER_NO_SHELL can leave them on).
+export const updatesManaged = () => MANAGED
 
 // "Update" or "Update now" on the page: the same checks, without the wait for sessions
 // (a restart keeps working sessions running).
 export async function updateNow(): Promise<UpdateStatus> {
   if (status.state === 'current' || status.state === 'updating') return status
+  if (MANAGED) { request(status); return status }
   const why = await blocker()
   if (why) set({ ...status, state: 'blocked', why })
   else void apply(status)

@@ -111,7 +111,9 @@ function Update() {
           <button className="primary" onClick={() => void api('/api/update/now', 'POST')}>Update now</button>
         </> : <>
           <span>{u.state === 'failed' ? `The workwith update failed: ${u.why}` : `${what} It cannot install by itself: ${u.why}`}</span>
-          <button className="primary" onClick={agent}>Ask an agent to update</button>
+          {u.managed
+            ? <button className="primary" onClick={() => void api('/api/update/now', 'POST')}>Try again</button>
+            : <button className="primary" onClick={agent}>Ask an agent to update</button>}
         </>}
       {u.state !== 'updating' && <button className="link" onClick={close}>Not now</button>}
     </div>
