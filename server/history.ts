@@ -203,6 +203,24 @@ export function importTranscript(file: string): { events: Event[]; contextUsed: 
 
 const ids = (m: any) => ({ ...(m.uuid ? { uuid: m.uuid } : {}), ...(m.sessionId ? { csid: m.sessionId } : {}) })
 
+// ---- moving -----------------------------------------------------------------
+
+// A conversation goes with its session to another folder: Claude Code keeps it under the
+// folder's name, and --resume looks only there. Its side folder (subagents, tool results) goes too.
+export function moveTranscript(csid: string, cwd: string) {
+  const from = transcriptOf(csid)
+  if (!from) return
+  let real = cwd
+  try { real = fs.realpathSync(cwd) } catch { /* as given */ }
+  const dir = path.join(PROJECTS, real.replace(/[^A-Za-z0-9]/g, '-'))
+  if (path.dirname(from) === dir) return
+  fs.mkdirSync(dir, { recursive: true })
+  fs.renameSync(from, path.join(dir, path.basename(from)))
+  const side = from.replace(/\.jsonl$/, '')
+  if (fs.existsSync(side)) fs.renameSync(side, path.join(dir, path.basename(side)))
+  cache.delete(from)
+}
+
 // ---- rewinding --------------------------------------------------------------
 
 function transcriptOf(csid: string): string | null {

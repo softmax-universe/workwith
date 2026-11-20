@@ -99,8 +99,8 @@ export function spendOf(m: SessionMeta) {
     : `${share == null ? '…%' : pct(share)} in 5h`
   const keep = m.spend.keep ? ` Notes and keep-warm calls: ${usd(m.spend.keep)}.` : ''
   const tip = `This session cost ${usd(m.spend.usd)} at API prices since ${new Date(m.spend.since).toLocaleDateString()}, each call at the price of that time.${keep}`
-    + `\n\nLast 5 hours: ${usd(recent)}${share != null ? `, about ${pct(share)} of your 5-hour limit` : '. Codinger does not know the 5-hour limit in dollars yet'}.`
-    + `\n\nLast 7 days: ${usd(week)}${weekShare != null ? `, about ${pct(weekShare)} of your weekly limit` : '. Codinger does not know the weekly limit in dollars yet'}.`
+    + `\n\nLast 5 hours: ${usd(recent)}${share != null ? `, about ${pct(share)} of your 5-hour limit` : '. workwith does not know the 5-hour limit in dollars yet'}.`
+    + `\n\nLast 7 days: ${usd(week)}${weekShare != null ? `, about ${pct(weekShare)} of your weekly limit` : '. workwith does not know the weekly limit in dollars yet'}.`
   return { label, tip }
 }
 

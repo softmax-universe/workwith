@@ -2,7 +2,7 @@
 // Components re-render on any change; at this scale that's plenty.
 
 import { useSyncExternalStore } from 'react'
-import type { AgentInfo, Anchor, ArtifactAnchor, AuthState, Event, ImageRef, InboxItem, Live, Part, Person, RemoteStatus, ServerMsg, SessionMeta, Settings, Task, Usage } from '../../shared/types.ts'
+import type { AgentInfo, Anchor, ArtifactAnchor, AuthState, Event, ImageRef, ClientMsg, InboxItem, Live, Part, Person, RemoteStatus, ServerMsg, SessionMeta, Settings, Task, Usage } from '../../shared/types.ts'
 import type { RemoteMachine } from '../../shared/remote.ts'
 import type { UpdateStatus } from '../../shared/update.ts'
 import { inboxParts } from '../../shared/inbox.ts'
@@ -21,6 +21,8 @@ export type AnswerDraft = { id: string; kind: 'answer'; askKey: string; question
 export type DismissDraft = { id: string; kind: 'dismiss'; key: string; label: string; createdAt: number }
 // An item you did ("<msg>:<id>"); text: a problem you hit doing it.
 export type DoneDraft = { id: string; kind: 'done'; key: string; label: string; text: string; result?: string; createdAt: number }
+// A box of a task list in Claude's text ("<msg>:t<n>") you ticked or unticked; only while it differs from what was sent.
+export type CheckDraft = { id: string; kind: 'check'; key: string; label: string; checked: boolean; createdAt: number }
 // A command opened in Terminal from a <run> block (by token), and how it ended.
 export type Run = { sid: string; card: string; command: string; item?: { key: string; label: string }; code?: number; tail?: string }
 // Your verdict on a file the agent changed in one turn (group), and a comment on lines of a file (shared/review.ts).
@@ -29,7 +31,7 @@ export type VerdictDraft = { id: string; kind: 'verdict'; group: string; path: s
 export type LineDraft = { id: string; kind: 'line'; createdAt: number } & LineComment
 // A comment on an artifact in the preview pane (ArtifactNotes.tsx); reaction: an emoji alone.
 export type ArtDraft = { id: string; kind: 'artifact'; anchor: ArtifactAnchor; quote: string; text: string; images: ImageRef[]; createdAt: number; reaction?: boolean }
-export type Draft = NoteDraft | ArtDraft | AnswerDraft | DismissDraft | DoneDraft | VerdictDraft | LineDraft
+export type Draft = NoteDraft | ArtDraft | AnswerDraft | DismissDraft | DoneDraft | CheckDraft | VerdictDraft | LineDraft
 export type Composer = { text: string; images: ImageRef[] }
 
 // One Codinger server: this page's own (LOCAL), or another machine through
@@ -44,6 +46,7 @@ export type Machine = {
   tasks: Task[]
   platform: string
   home: string
+  defaultDir?: string      // the folder the new session dialog starts in
   auth: AuthState
   stale: boolean
   staleAt?: number         // the time of its newest code on disk
@@ -80,6 +83,7 @@ type State = {
   lightbox: string | null     // an image shown full size
   showSteps: boolean          // keep Claude's in-between messages out of the activity rows
   commentButton: boolean      // selecting text offers a Comment button instead of opening one (Transcript)
+  enterSends: boolean         // Enter sends and Shift+Enter is a line break; else Cmd+Enter sends (Inputs.tsx sendKey)
   touchPick: boolean          // on a touch screen with the keyboard up, a held finger picks message text (Transcript.tsx)
   money: 'usd' | 'pct' | 'week'   // costs in dollars, or as a share of the 5-hour or weekly limit (web/src/cache.ts)
   runs: Record<string, Run>
@@ -93,15 +97,17 @@ type State = {
   agent: AgentInfo | null            // Codinger is this agent's desk (server/agent.ts)
   me: Person | null                  // who this browser is, as the proxy says
   people: Person[]                   // who has the page open now (server: 'people')
+  viewing: Record<string, string[]>  // the sessions each of them has open on a page in view, by login
   askName: boolean                   // nobody says: ask this browser's person for a name (CODINGER_ASK_NAME)
   billing: 'api' | 'plan'            // 'api': billed per token, so no plan limits to show
+  billingNote: string | null         // per token for now, though the desk has a plan: why
   seenAt: number | null              // offline: when the session list shown was last current
   page: 'artifacts' | null           // a page in place of the selected session
   artifact: string | null            // the artifact chosen on the Artifacts page
   artifactV?: number                 // and the version of it on view there (none: the latest)
   settingsPage: string | null        // Settings is open, on this page
   panels: Record<string, Panel>      // by session: the panel beside it (SidePanel.tsx)
-  fileOpen: Record<string, { path: string; line?: number; changes?: boolean; group?: string; at: number }>   // by session: the file or folder its Files tab shows, and the group for review it was opened from
+  fileOpen: Record<string, { path: string; line?: number; changes?: boolean; group?: string; seq?: number; at: number }>   // by session: the file or folder its Files tab shows, and the group for review it was opened from
   artifacts: Artifact[]
   artifactsPort: number              // where the server that runs artifacts listens
   prolifica: ProlificaState
@@ -115,6 +121,7 @@ type State = {
   sideHidden: boolean                // on a wide screen you hid the sidebar (a click on its splitter, main.tsx)
   collapsed: string[]                // machines whose sessions you hid in the sidebar, and groups (group:<machine>:<id>)
   sideAll: boolean                   // the sidebar shows every session as a row, not only those that need you
+  sideMine: boolean                  // with people known apart: only the sessions you wrote in, as rows
   archiveQuery: string               // the archived view shows only the sessions whose folder has this text
   archiveByFolder: boolean           // the archived view puts sessions under their folders, not under your groups
   machineOrder: string[]             // other machines, in the order you dragged them to
@@ -147,6 +154,7 @@ export const state = {
   showSteps: saved('codinger.showSteps', false),
   touchPick: saved('codinger.touchPick', true),
   commentButton: saved('codinger.commentButtonV2', true),
+  enterSends: saved('codinger.enterSends', false),
   // 'both' was a choice until October 2026.
   money: (['usd', 'pct', 'week'] as const).find((x) => x === saved('codinger.money', 'pct')) ?? 'pct',
   runs: {},
@@ -168,6 +176,7 @@ export const state = {
   sideTab: saved('codinger.sideTab', 'local'),
   collapsed: saved('codinger.collapsed', []),
   sideAll: saved('codinger.sideAll', false),
+  sideMine: saved('codinger.sideMine', false),
   archiveQuery: '',
   archiveByFolder: saved('codinger.archiveByFolder', false),
   sideHidden: saved('codinger.sideHidden', false),
@@ -177,7 +186,9 @@ export const state = {
   me: null,
   askName: false,
   people: [],
+  viewing: {},
   billing: 'plan',
+  billingNote: null,
   seenAt: null,
 } as Partial<State> as State
 
@@ -210,6 +221,9 @@ export const localId = (id: string) => id.includes(SEP) ? id.slice(id.indexOf(SE
 export const globalId = (machine: string, id: string) => machine ? `${machine}${SEP}${id}` : id
 // A session id that a server sent (in a message, a task, a tool call): on the current machine.
 export const here = (id: string) => globalId(currentMachine(), id)
+// The messages a session wants to send to archived sessions: each waits for your yes or no.
+export const archiveAsksOf = (sessions: SessionMeta[], id: string) =>
+  sessions.flatMap((to) => (to.mail ?? []).filter((x) => x.reopens && globalId(machineOf(to.id), x.from) === id).map((mail) => ({ to, mail })))
 
 const blank = (name: string): Machine => ({ name, connected: false, loaded: false, sessions: [], settings: { leadAutoSend: false }, usage: {}, tasks: [], platform: '', home: '', auth: { state: 'ok' }, stale: false })
 
@@ -263,8 +277,15 @@ Object.defineProperties(state, {
 const looksFrom = () => state.web ? machineList()[0]?.name : LOCAL
 // Where the artifacts server is, from this page: on the web, artifacts.codinger.app for the
 // machine they come from (remote/src/index.ts); null on the hub's other address, which has none.
+const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/
+// An artifact's frame runs in an origin of its own: the artifacts server's, or none ("null") when the
+// page's server passes it through; a message to it then can't name its origin.
+export const frameOrigin = (src: string) => { const o = new URL(src, location.href).origin; return o === location.origin ? '*' : o }
 export function artifactsBase(port: number): string | null {
-  if (!state.web) return `http://127.0.0.1:${port}`
+  // In a browser on this machine, the artifacts server's own port: an origin apart from the page.
+  // In one on another machine (a desk behind a proxy), that port is the server's own 127.0.0.1,
+  // so the page's server passes the artifacts through, sandboxed (server/index.ts, proxyArtifacts).
+  if (!state.web) return LOOPBACK.test(location.hostname) ? `http://127.0.0.1:${port}` : `${location.origin}${ROOT}/_artifacts`
   const m = looksFrom()
   return m && location.hostname.startsWith('web.') ? `${location.origin.replace('//web.', '//artifacts.')}/m/${m}` : null
 }
@@ -289,6 +310,7 @@ export function changed() {
   for (const l of listeners) l()
   reportDrafting()
   reportLive()
+  reportViewing()
   clearTimeout(persistTimer)
   persistTimer = window.setTimeout(() => {
     localStorage.setItem(mine('codinger.drafts'), JSON.stringify(state.drafts))
@@ -297,10 +319,12 @@ export function changed() {
     localStorage.setItem('codinger.showSteps', JSON.stringify(state.showSteps))
     localStorage.setItem('codinger.touchPick', JSON.stringify(state.touchPick))
     localStorage.setItem('codinger.commentButtonV2', JSON.stringify(state.commentButton))
+    localStorage.setItem('codinger.enterSends', JSON.stringify(state.enterSends))
     localStorage.setItem(mine('codinger.preview'), JSON.stringify(state.preview))
     localStorage.setItem('codinger.sideTab', JSON.stringify(state.sideTab))
     localStorage.setItem('codinger.collapsed', JSON.stringify(state.collapsed))
     localStorage.setItem('codinger.sideAll', JSON.stringify(state.sideAll))
+    localStorage.setItem('codinger.sideMine', JSON.stringify(state.sideMine))
     localStorage.setItem('codinger.archiveByFolder', JSON.stringify(state.archiveByFolder))
     localStorage.setItem('codinger.sideHidden', JSON.stringify(state.sideHidden))
     localStorage.setItem('codinger.machineOrder', JSON.stringify(state.machineOrder))
@@ -332,6 +356,17 @@ function reportDrafting() {
 // so the others at the desk see it, and the next send from anyone takes it along.
 // What went up last, by session: the parts, and the drafts and message they came from,
 // so a send that took them clears just those (onServer 'taken').
+// This browser's name for the server: what you wrote in another browser (a phone, a laptop) is
+// not this one's, so a send from here takes it along like someone else's.
+const CLIENT = (() => {
+  try {
+    const had = localStorage.getItem('codinger.client')
+    if (had) return had
+    const id = Math.random().toString(36).slice(2, 10)
+    localStorage.setItem('codinger.client', id)
+    return id
+  } catch { return Math.random().toString(36).slice(2, 10) }
+})()
 type Pushed = { rev: number; json: string; drafts: Map<string, string>; text: string; images: string }
 const pushed = new Map<string, Pushed[]>()
 let liveTimer: number | undefined
@@ -350,7 +385,7 @@ function reportLive() {
       if (json === (list.at(-1)?.json ?? '[]')) continue
       const rev = Math.max(Date.now(), (list.at(-1)?.rev ?? 0) + 1)
       pushed.set(m.id, [...list.slice(-9), { rev, json, drafts: new Map(draftsOf(m.id).map((d) => [d.id, JSON.stringify(d)])), text: command ? '' : c.text, images: command ? '[]' : JSON.stringify(c.images) }])
-      void api(`/api/sessions/${m.id}/live`, 'POST', { rev, parts }).catch(() => pushed.delete(m.id))
+      void api(`/api/sessions/${m.id}/live`, 'POST', { rev, parts, client: CLIENT }).catch(() => pushed.delete(m.id))
     }
   }, 250)
 }
@@ -363,8 +398,8 @@ function takenLive(sid: string, rev: number) {
   if (c.text === snap.text && JSON.stringify(c.images) === snap.images) state.composer[sid] = { text: '', images: [] }
   pushed.set(sid, (pushed.get(sid) ?? []).filter((p) => p.rev > rev))
 }
-// What the others at the desk are writing in a session now.
-export const othersLive = (m: SessionMeta | undefined): Live[] => (m?.live ?? []).filter((l) => l.id !== state.me?.login)
+// What the others at the desk are writing in a session now, and what you wrote in another browser.
+export const othersLive = (m: SessionMeta | undefined): Live[] => (m?.live ?? []).filter((l) => l.id !== state.me?.login || (!!l.client && l.client !== CLIENT))
 
 export function useStore(): State {
   useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l) }, () => version)
@@ -447,6 +482,19 @@ export async function start() {
 }
 
 const sockets = new Map<string, WebSocket>()
+// This server is told which of its sessions the page shows while the page is in view, so the others
+// see who is in a session now. Only when it knows people apart (state.me).
+let viewSent: string | null | undefined
+function reportViewing() {
+  const ws = sockets.get(LOCAL)
+  if (!ws || ws.readyState !== WebSocket.OPEN || !state.me) return
+  const sid = document.visibilityState === 'visible' && !state.page && state.selected && machineOf(state.selected) === LOCAL ? localId(state.selected) : null
+  if (sid === viewSent) return
+  viewSent = sid
+  ws.send(JSON.stringify({ type: 'viewing', sessionId: sid } satisfies ClientMsg))
+}
+document.addEventListener('visibilitychange', () => reportViewing())
+
 function connect(machine: string) {
   if (sockets.has(machine)) return
   const base = baseOf(machine)
@@ -462,6 +510,8 @@ function connect(machine: string) {
   }
   ws.onclose = () => {
     sockets.delete(machine)
+    // A new socket is a new page to the server: it is told again.
+    if (machine === LOCAL) viewSent = undefined
     const m = state.machines[machine]
     if (m) m.connected = false
     if (!machine) state.people = []
@@ -505,12 +555,12 @@ function onServer(m: ServerMsg, machine: string) {
   const looks = looksFrom() === machine
   switch (m.type) {
     case 'hello':
-      Object.assign(M, { sessions: own(m.sessions), settings: m.settings, usage: m.usage, loaded: true, platform: m.platform, home: m.home, auth: m.auth ?? { state: 'ok' }, stale: !!m.stale, staleAt: m.staleAt, update: m.update, remote: m.remote, device: m.device })
+      Object.assign(M, { sessions: own(m.sessions), settings: m.settings, usage: m.usage, loaded: true, platform: m.platform, home: m.home, defaultDir: m.defaultDir, auth: m.auth ?? { state: 'ok' }, stale: !!m.stale, staleAt: m.staleAt, update: m.update, remote: m.remote, device: m.device })
       if (looks) applyAppearance(m.settings.appearance)
       if (state.restarting === machine) state.restarting = null
       // An agent's desk (server/agent.ts) and who this browser is: the page's own machine says.
       if (!machine) {
-        state.agent = m.agent ?? null; state.me = m.me ?? null; state.askName = !!m.askName; state.billing = m.billing ?? 'plan'
+        state.agent = m.agent ?? null; state.me = m.me ?? null; state.askName = !!m.askName; state.billing = m.billing ?? 'plan'; state.billingNote = m.billingNote ?? null
         if (state.billing === 'api') state.money = 'usd'
         state.seenAt = null; keepSeen()
       }
@@ -527,12 +577,15 @@ function onServer(m: ServerMsg, machine: string) {
       break
     case 'usage': M.usage = m.usage; break
     case 'tasks': M.tasks = m.tasks; break
-    case 'people': if (!machine) state.people = m.people; break
+    case 'people': if (!machine) { state.people = m.people; state.viewing = m.viewing ?? {} } break
     case 'taken': if (!machine && m.login === state.me?.login) takenLive(g(m.sessionId), m.rev); break
     // Artifacts run on this page's own machine (on the web, the first one).
     case 'artifacts': if (looks) { state.artifacts = m.artifacts; state.artifactsPort = m.port; state.prolifica = m.prolifica }; break
     case 'preview': state.preview = { ...state.preview, [g(m.sessionId)]: { target: m.target, at: m.at } }; break
     case 'auth': M.auth = m.auth; break
+    case 'billing':
+      if (!machine) { state.billing = m.billing; state.billingNote = m.note ?? null; state.money = m.billing === 'api' ? 'usd' : state.money }
+      break
     case 'stale': M.stale = m.stale; M.staleAt = m.staleAt; break
     case 'update': M.update = m.update; break
     case 'device': M.device = m.device; break
@@ -613,11 +666,11 @@ export function opened(id: string) {
   const s = state.sessions.find((x) => x.id === id)
   if (s?.unread) void api(`/api/sessions/${id}/seen`).catch(() => {})
 }
-
 // Back in this window: the session it shows is seen now.
 window.addEventListener('focus', () => {
   if (state.sessions.find((x) => x.id === state.selected)?.unread) void api(`/api/sessions/${state.selected}/seen`).catch(() => {})
 })
+
 // Open a session at one of its events (a message, or the tool call in an activity row).
 export function revealEvent(sid: string, seq: number) {
   select(sid)
@@ -686,7 +739,7 @@ const order = (msg: string) => msg.split(/[.:]/).map(Number)
 const cmp = (a: number[], b: number[]) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0); return 0 }
 
 export function hasContent(d: Draft): boolean {
-  if (d.kind === 'dismiss' || d.kind === 'done' || d.kind === 'verdict') return true
+  if (d.kind === 'dismiss' || d.kind === 'done' || d.kind === 'check' || d.kind === 'verdict') return true
   if (d.kind === 'line') return !!d.text.trim()
   // A draft goes back when edited, or approved as it is.
   if (d.kind === 'answer' && d.original != null) return !!d.text.trim() && (d.text.trim() !== d.original.trim() || !!d.approved)
@@ -746,6 +799,14 @@ export function setDoneText(sid: string, key: string, text: string) {
   changed()
 }
 
+// Tick or untick a box of a task list. was: its state before (as Claude wrote it, or as last sent).
+// Back to that state, nothing goes: the draft goes away.
+export function setCheck(sid: string, key: string, label: string, checked: boolean, was: boolean) {
+  const keep = draftsOf(sid).filter((d) => !(d.kind === 'check' && d.key === key))
+  state.drafts[sid] = checked === was ? keep : [...keep, { id: uid(), kind: 'check', key, label, checked, createdAt: Date.now() }]
+  changed()
+}
+
 // Everything queued for a session, in reading order: notes and answers in the
 // order their passages appear, then whatever is in the composer.
 // The lead's drafts (shared/inbox.ts) go with yours: its replies in reading
@@ -784,6 +845,9 @@ export function queuedParts(sid: string, alsoDismiss: { key: string; label: stri
   })
   if (files.length || comments.length) parts.push({ kind: 'review', text: '', files, comments })
   if (done.length) parts.push({ kind: 'done', text: '', items: done })
+  const checks = mine.flatMap((d) => d.kind === 'check' ? [{ key: d.key, label: d.label, checked: d.checked }] : [])
+  checks.sort((a, b) => cmp(order(a.key.replace(':t', '.')), order(b.key.replace(':t', '.'))))
+  if (checks.length) parts.push({ kind: 'check', text: '', items: checks })
   if (dismissed.length) parts.push({ kind: 'dismiss', text: '', items: dismissed })
   const c = composerOf(sid)
   if (opts.text !== false && (c.text.trim() || c.images.length)) parts.push({ kind: 'text', text: c.text, images: c.images })
@@ -796,11 +860,19 @@ export async function sendQueued(sid: string, alsoDismiss: { key: string; label:
   // Held replies and the others' live ones alone make a message too: the server adds them (server/index.ts 'send').
   const m = state.sessions.find((s) => s.id === sid)
   if (!parts.length && !m?.held?.length && !othersLive(m).length) return
-  await api(`/api/sessions/${sid}/send`, 'POST', { parts, inbox: inboxOf(sid).map((i) => i.id) })
-  state.drafts[sid] = []
-  state.composer[sid] = { text: '', images: [] }
+  const went = new Map(draftsOf(sid).map((d) => [d.id, JSON.stringify(d)]))
+  const c = composerOf(sid)
+  await api(`/api/sessions/${sid}/send`, 'POST', { parts, inbox: inboxOf(sid).map((i) => i.id), client: CLIENT })
+  // What you wrote or changed while the message was on its way stays.
+  state.drafts[sid] = draftsOf(sid).filter((d) => went.get(d.id) !== JSON.stringify(d))
+  if (composerOf(sid).text === c.text && JSON.stringify(composerOf(sid).images) === JSON.stringify(c.images)) state.composer[sid] = { text: '', images: [] }
   changed()
 }
+
+// What the Send button of each open session's message box does (SessionView Composer), so a
+// reply box elsewhere can send with Cmd+Enter: with the same checks for open and critical items.
+export const senders = new Map<string, () => void>()
+export const sendSession = (sid: string) => senders.get(sid)?.()
 
 // The agent's name where the UI would say "Claude".
 export const agentName = () => state.agent?.name ?? 'Claude'

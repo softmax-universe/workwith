@@ -6,6 +6,7 @@ import type { Appearance } from './appearance.ts'
 import type { Artifact, PreviewTarget, ProlificaState } from './artifacts.ts'
 import type { UpdateMode, UpdateStatus } from './update.ts'
 import type { Published } from './share.ts'
+import type { EmojiUse } from './emoji.ts'
 import type { FileVerdict, LineComment } from './review.ts'
 
 export type Status =
@@ -50,17 +51,23 @@ export type SessionMeta = {
   pendingAsks: number
   pendingCritical?: number   // of pendingAsks: the items marked critical
   pendingReviews?: number    // of pendingAsks: the reviews the agent asked for (<review>)
+  taskDone?: boolean         // Claude's last turn says the task is done (<task-done/>, shared/blocks.ts)
   lastText: string        // the tail of the last thing Claude said, for overviews
   error: string | null
   archived: boolean
+  // You dropped it for now: it has open loops, but you chose to let them go. It waits, quiet, in
+  // the sidebar's Overhang (no badges, no pushes, no keep-warm calls) until you pick it up again.
+  dropped?: boolean
   starred?: boolean       // you starred it: its critter has a yellow aura
   inbox: InboxItem[]      // replies the lead agent drafted for this session
   drafting?: boolean      // you have a reply in progress here (the browser says so), so the lead's wait
   look?: Look             // what its critter wears; Claude picks it (shared/looks.ts)
   titleByUser?: boolean   // you named it at some point
+  titled?: boolean        // named by someone, not its folder's name: the agent, the dialog, or Codinger (server/describe.ts)
   // Claude renamed a session you had named: your name, to undo to; and a name of Claude's you undid.
   titleBefore?: string
   titleUndone?: string
+  movedFrom?: string      // the folder it left with move_to_folder, until its agent has heard
   order?: number          // its place among its siblings in the sidebar, once dragged there
   group?: string          // the sidebar group you put it in (Settings.groups); a child starts in its parent's
   // The prompt cache: when the last API call started (at the latest), and its TTL (ms). See shared/cache.ts.
@@ -82,6 +89,9 @@ export type SessionMeta = {
   resumeAt?: string | null
   held?: Held[]           // replies waiting for a joint turn (Held)
   live?: Live[]           // what each person is writing now, as they write it (Live)
+  // Who wrote in it, by login, when Codinger knows people apart (Person): their name, and when
+  // they last sent something. The sidebar shows the sessions you were in, and who else is in one now.
+  writers?: Record<string, Writer>
   autopilot?: Autopilot
   // Messages between sessions (server/mail.ts). mailFilter: who else may send to it (unset: every
   // session; set_inbox narrows it); its parent and children always may. mail: messages waiting
@@ -99,11 +109,13 @@ export type SessionMeta = {
 export type MailFilter = { mode: 'any' | 'only' | 'none'; ids?: string[] }
 // A message from one session to another. replyTo: the message it answers, and the start of
 // its text. idle: Codinger's note that a child ended its turn. held: past the limit of
-// messages in a row, it waits for your OK. step: from a child to its parent, it waits for the
+// messages in a row, it waits for your OK. reopens: held because the receiver is archived; your
+// OK takes the receiver out of the archive. decided: Codinger's note to the sender of such a
+// message, with your answer. step: from a child to its parent, it waits for the
 // child's next tool call or the end of its turn; endTurn: the child's turn ended after it.
 export type Mail = {
   id: string; from: string; title: string; text: string; ts: number
-  replyTo?: { id: string; text: string }; idle?: boolean; held?: boolean; step?: boolean; endTurn?: boolean
+  replyTo?: { id: string; text: string }; idle?: boolean; held?: boolean; reopens?: boolean; decided?: boolean; step?: boolean; endTurn?: boolean
 }
 
 // Autopilot (server/autopilot.ts): after each turn Codinger tells Claude to go on, until the
@@ -149,6 +161,7 @@ export type ArtifactAnchor = { artifact: string; v?: number; at?: number; pid?: 
 // (CODINGER_USER_HEADER; server/agent.ts). login: as the proxy gives it; name: to show.
 // guest: the name came from the browser (CODINGER_ASK_NAME), and nothing checked it.
 export type Person = { login: string; name: string; guest?: boolean }
+export type Writer = { name: string; last: number; guest?: boolean }
 
 // The agent this Codinger belongs to, when it runs on an agent's own host (server/agent.ts):
 // its name for "Message Ada", and whether it has a face and a theme of its own.
@@ -170,10 +183,12 @@ export type Part = ({ by?: Person }) & (
   // Items the user marked done; `text` on one is a problem they hit doing it.
   // result: how a command the item asked for went.
   | { kind: 'done'; text: string; items: { key: string; label: string; text?: string; result?: string }[]; images?: ImageRef[] }
+  // Boxes of a task list in Claude's text (- [ ] step) the user ticked or unticked ("<msg>:t<n>").
+  | { kind: 'check'; text: string; items: { key: string; label: string; checked: boolean }[]; images?: ImageRef[] }
   // Verdicts on the agent's changes and comments on their lines (shared/review.ts).
   | { kind: 'review'; text: string; files: FileVerdict[]; comments: LineComment[]; images?: ImageRef[] }
   // A message from another session (see Mail); relation: what the sender is to this session.
-  | { kind: 'mail'; text: string; id: string; from: string; title: string; relation?: 'parent' | 'child'; replyTo?: { id: string; text: string }; idle?: boolean; endTurn?: boolean; images?: ImageRef[] }
+  | { kind: 'mail'; text: string; id: string; from: string; title: string; relation?: 'parent' | 'child'; replyTo?: { id: string; text: string }; idle?: boolean; decided?: boolean; endTurn?: boolean; images?: ImageRef[] }
 )
 
 // Replies someone held for a joint turn instead of sending them: they wait on the
@@ -182,8 +197,9 @@ export type Held = { id: string; by: Person | null; parts: Part[]; ts: number }
 // What one person is writing in a session now (id: their login): their comments, answers
 // and message, sent up as they type, so the others see them. The next send from anyone
 // takes everybody's along. rev: the browser's version of it (a time), so a late copy of
-// what already went can't come back.
-export type Live = Held & { rev: number }
+// what already went can't come back. client: which of the person's browsers it is from; each
+// has its own copy, and a send from one takes along what the others hold (server/index.ts 'send').
+export type Live = Held & { rev: number; client?: string }
 
 export type Block =
   | { type: 'text'; text: string }
@@ -233,13 +249,33 @@ export type Settings = {
   mcpStartOff?: boolean; mcpAlways?: string[]; mcpClaude?: boolean
   plan?: { tier: string; usd: number; yearly?: boolean }; reviewSeen?: { week?: string; month?: string }
   autoUpdate?: UpdateMode   // updates from origin/main (server/update.ts); unset: ask
+  emoji?: EmojiUse          // the reaction emoji you use, to put first in the rows and the picker
+  // A folder's icon in the sidebar, set by hand: an image the server keeps (/api/images/…), an
+  // emoji, or 'none' for the critter. It also holds for the folders under it (server/projecticons.ts).
+  // projectEmoji: the emoji Claude picked for a repository with no icon, by its root.
+  projectIcons?: Record<string, string>; projectEmoji?: Record<string, string>
+  // The improvement loop (server/loop.ts). repo: where issues go (owner/name, best private);
+  // with it set, the Report button and the file_issue tool file there. loop: this desk works
+  // on them. owners: logins (proxy or GitHub) whose straightforward issues ship by themselves.
+  // codeRepo: the code's repo, for links. checkout: the clone that worktrees come from.
+  // Unset: workwith.json's (server/store.ts); null: no issues on this desk.
+  issues?: {
+    repo: string; loop?: boolean; owners?: string[]; codeRepo?: string; checkout?: string
+    dailyPushes?: number; issueUsd?: number; maxDiff?: number; parallel?: number
+  } | null
 }
 
+// What a page tells its server over the socket: the session it shows while it is in view (null: none).
+export type ClientMsg = { type: 'viewing'; sessionId: string | null }
+
 export type ServerMsg =
+  // defaultDir: the folder the new session dialog starts in (CODINGER_DEFAULT_DIR, else your home).
   // agent: set when Codinger runs as one agent's desk; me: who this browser is, per the proxy;
   // billing: 'api' when Claude Code bills per token (Bedrock, Vertex), so there are no plan limits.
-  | { type: 'hello'; sessions: SessionMeta[]; settings: Settings; usage: Usage; platform: string; home: string; auth: AuthState; stale?: boolean; staleAt?: number; update?: UpdateStatus; remote?: RemoteStatus; device?: 'laptop' | 'desktop'
-      agent?: AgentInfo; me?: Person | null; askName?: boolean; billing?: 'api' | 'plan' }
+  | { type: 'hello'; sessions: SessionMeta[]; settings: Settings; usage: Usage; platform: string; home: string; defaultDir?: string; auth: AuthState; stale?: boolean; staleAt?: number; update?: UpdateStatus; remote?: RemoteStatus; device?: 'laptop' | 'desktop'
+      agent?: AgentInfo; me?: Person | null; askName?: boolean; billing?: 'api' | 'plan'; billingNote?: string }
+  // Billing moved between the plan and per-token (CODINGER_BILLING=fallback); note: why it's per token.
+  | { type: 'billing'; billing: 'api' | 'plan'; note?: string }
   | { type: 'device'; device: 'laptop' | 'desktop' }
   | { type: 'remote'; remote: RemoteStatus }
   | { type: 'auth'; auth: AuthState }
@@ -259,7 +295,8 @@ export type ServerMsg =
   | { type: 'settings'; settings: Settings }
   | { type: 'tasks'; tasks: Task[] }
   // Who has this page open now, once each (only people Codinger can name).
-  | { type: 'people'; people: Person[] }
+  // viewing: the sessions each person has open on a page in view now, by login.
+  | { type: 'people'; people: Person[]; viewing?: Record<string, string[]> }
   // A send took this person's live drafts up to rev: their browser clears what went.
   | { type: 'taken'; sessionId: string; login: string; rev: number }
   // Every artifact (server/artifacts.ts); port: where the server that runs them listens.

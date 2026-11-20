@@ -24,6 +24,12 @@ serve`. The first time, Tailscale prints a link to turn on Serve for the tailnet
 - **From GitHub:** Codinger's updater offers what's on origin/main every 10 minutes.
 - **Made on the Mac:** commit there and push to GitHub (`gh auth login` on the Mac once), or
   fetch it from the laptop: `git fetch mini && git push origin mini/main:main`.
+- **A second desk on the same Mac:** `NAME=hyperdesk PORT=4555 SERVE=8446 deploy/mac/install.sh
+  mini`. It has its own checkout (`~/services/hyperdesk`), data (`~/.hyperdesk`, which its
+  launchd job passes as `CODINGER_HOME`), job (`app.codinger.hyperdesk`), git remote
+  (`git push hyperdesk main`) and URL (`https://<mac>.<tailnet>.ts.net:8446`), so one desk can
+  work on Codinger while you talk to it from the other. Its recent folders and conversations to
+  resume are only its own (`CODINGER_HISTORY=own`), though both share the user's Claude Code.
 - **Settings:** edit `~/.codinger/desk.env`, then restart from the page or
   `launchctl kickstart -k gui/$(id -u)/app.codinger.desk`.
 
@@ -35,3 +41,7 @@ Notes:
   sessions on, and launchd starts the next one; `run.sh` builds the page first. Sessions and
   tasks run in their own process groups, so they outlive the server.
 - Logs: `~/.codinger/launchd.log`, `~/.codinger/server.log`.
+- A page that a server on the Mac serves (a dev server, a backend): an agent's `show_artifact`
+  with its localhost url shares the port on the tailnet with `tailscale serve --https=91xx`,
+  through a small proxy that names the host as localhost (server/ports.ts). The share ends
+  when the server stops listening. `tailscale serve status` lists them.

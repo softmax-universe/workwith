@@ -9,7 +9,6 @@ import { PLANS, cents, daysAgo, daysIn, fmtDay, lastMonth, lastWeek, money, prev
 import { XIcon } from './Icons.tsx'
 import { UsageAudit, dayTotals, useUsage } from './UsageAudit.tsx'
 import { ChartHead, SLOTS, WorkChart, useView, util, type Totals } from './CostChart.tsx'
-import type { EstimatesReply } from '../../../shared/estimates.ts'
 
 // One copy for the banner and the page, of the current machine, read again every half hour.
 let costs: CostsReply | null = null
@@ -134,8 +133,8 @@ export function CostPanel() {
             <td>{r.usd ? cents(r.cost / r.usd) : '–'}</td><td>{r.prompts ? cents(r.cost / r.prompts) : '–'}</td><td>{itc != null && r.cost ? util(r.usd * itc / r.cost * 100) : '–'}</td>
           </tr>)}</tbody>
         </table>}
-        {c.scanning && <p className="muted cost-note">Codinger is still reading your transcripts. The numbers will go up.</p>}
-        {c.since && <p className="muted cost-note">The record starts on {fmtDay(c.since)}. Claude Code deletes transcripts after 30 days, so Codinger keeps its own record and a copy of the transcripts.</p>}
+        {c.scanning && <p className="muted cost-note">workwith is still reading your transcripts. The numbers will go up.</p>}
+        {c.since && <p className="muted cost-note">The record starts on {fmtDay(c.since)}. Claude Code deletes transcripts after 30 days, so workwith keeps its own record and a copy of the transcripts.</p>}
       </div>}
 
       <UsageAudit price={price} weekCeil={weekCeil} />
@@ -147,11 +146,9 @@ export function CostPanel() {
             A full week of your plan is about {money(weekCeil)} of API work{fiveCeil ? `, and a full 5-hour window about ${money(fiveCeil)}` : ''}.
             If you used all of it, each API dollar would cost you about {cents(price / (weekCeil * 52 / 12))}.
           </p>
-          <p className="muted cost-note">Codinger estimates the limits from {rate?.pairs ?? 0} measurements of the last 3 days: it compares spend at API prices with how far the percentages move. The estimate gets better as you use Claude Code.</p>
-        </> : <p className="muted cost-note">Codinger does not know your limits in dollars yet. It learns them as you use Claude Code.</p>}
+          <p className="muted cost-note">workwith estimates the limits from {rate?.pairs ?? 0} measurements of the last 3 days: it compares spend at API prices with how far the percentages move. The estimate gets better as you use Claude Code.</p>
+        </> : <p className="muted cost-note">workwith does not know your limits in dollars yet. It learns them as you use Claude Code.</p>}
       </div>
-
-      <Estimates />
 
       {months.length > 0 && <Reviews title="Monthly reviews" ps={months.map((m) => review('month', m, c, price!, tier))} tier={tier} tot={tot} price={price} itc={itc} since={c.since} />}
       {weeks.length > 0 && <Reviews title="Weekly reviews" ps={weeks.map((w) => review('week', w, c, price!, tier))} tier={tier} tot={tot} price={price} itc={itc} since={c.since} />}
@@ -181,7 +178,7 @@ function PriceForm({ c }: { c: CostsReply }) {
     <div>
       <h3 className="cost-h">Your plan</h3>
       <p className="cost-line">
-        {c.plan ? <>Claude Code is logged in to <b>{c.plan.label}</b>. Its list price is {money(c.plan.usd)} a month.</> : <>Codinger can not tell your plan from Claude Code's login. Type what you pay.</>}
+        {c.plan ? <>Claude Code is logged in to <b>{c.plan.label}</b>. Its list price is {money(c.plan.usd)} a month.</> : <>workwith can not tell your plan from Claude Code's login. Type what you pay.</>}
       </p>
       <label className="settings-check cost-pay">
         You pay $
@@ -243,42 +240,5 @@ function Review({ p, tier, open, itc, since }: { p: Period; tier: string | undef
       </table>}
       {p.weekShare != null && <p className="muted cost-note">The busiest week used about {Math.round(p.weekShare * 100)}% of your weekly limit. {covered < all ? `The record has only ${covered} days of this time.` : ''}</p>}
     </details>
-  )
-}
-
-// Each estimate an agent saved, next to what the work took (server/estimates.ts).
-const mins = (m: number) => m < 1 ? `${Math.round(m * 60)} s` : m < 120 ? `${Math.round(m * 10) / 10} min` : `${Math.round(m / 6) / 10} h`
-const times = (x: number) => `${x >= 10 ? Math.round(x) : Math.round(x * (x < 1 ? 100 : 10)) / (x < 1 ? 100 : 10)}×`
-function Estimates() {
-  const m = currentMachine()
-  const [r, setR] = useState<EstimatesReply | null>(null)
-  useEffect(() => { let on = true; api<EstimatesReply>('/api/estimates', 'GET', undefined, m).then((x) => { if (on) setR(x) }).catch(() => {}); return () => { on = false } }, [m])
-  if (!r?.rows.length) return null
-  const f = r.found
-  return (
-    <div>
-      <h3 className="cost-h">Estimates</h3>
-      {f.n > 0 && <p className="cost-line">
-        Medians of {f.n} {f.n === 1 ? 'pair' : 'pairs'}:
-        {f.time != null && ` ${times(f.time)} the time`}{f.cost != null && `, ${times(f.cost)} the cost`}
-        {f.perHour != null && `; 1 human hour ≈ ${mins(f.perHour)}, ${money(f.usdPerHour ?? 0)}`}
-      </p>}
-      <table className="mcp-table cost-table cost-estimates">
-        <thead><tr><th>Task</th><th>Session</th><th>Estimate</th><th>Human</th><th>Actual</th><th>Calls</th><th>Time</th><th>Cost</th></tr></thead>
-        <tbody>{r.rows.map((e) => {
-          const a = e.actual
-          return <tr key={e.id}>
-            <td>{e.task}</td>
-            <td data-label="Session">{e.title ?? e.sid}</td>
-            <td data-label="Estimate">{mins(e.minutes)}{e.usd != null && `, ${money(e.usd)}`}</td>
-            <td data-label="Human">{e.humanHours != null ? `${e.humanHours} h` : '–'}</td>
-            {a ? <>
-              <td data-label="Actual">{mins(a.minutes)}, {money(a.usd)}</td><td data-label="Calls">{a.calls}</td>
-              <td data-label="Time">{times(a.minutes / e.minutes)}</td><td data-label="Cost">{e.usd ? times(a.usd / e.usd) : '–'}</td>
-            </> : <td colSpan={4} className="muted" data-label="Actual">open</td>}
-          </tr>
-        })}</tbody>
-      </table>
-    </div>
   )
 }

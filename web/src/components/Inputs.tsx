@@ -10,7 +10,7 @@ import type { ImageRef } from '../../../shared/types.ts'
 import { htmlToMarkdown } from '../htmlmd.ts'
 import { activate, enterKey, fromDom, gapKey, imageCaret, imgNode, nodeOffset, pasteText, pillText, rangeAt, rangeOffset, render, select, selectionOffsets, snapCaret, uploadNode, wrapKey } from '../mdlive.ts'
 import { imagesFrom, uploadImage } from '../util.ts'
-import { media, uploadFile } from '../store.ts'
+import { media, state, uploadFile } from '../store.ts'
 import { fileToken } from '../../../shared/files.ts'
 import { isLongPaste, pasteToken } from '../../../shared/pastes.ts'
 import { ClipIcon, ImageIcon, XIcon } from './Icons.tsx'
@@ -30,7 +30,10 @@ type Props = {
   attachRef?: React.RefObject<((files: File[]) => void) | null>
   placeholder?: string
   autoFocus?: boolean
+  // Cmd+Enter (Ctrl+Enter off a Mac) calls it, and plain Enter too when Settings says Enter sends.
   onSubmit?(): void
+  // false: Enter is a line break here, whatever Settings says (a draft of a long text).
+  enterSends?: boolean
   onEscape?(): void
   minRows?: number
   // Gets first look at keys; return true to swallow one (the slash menu does).
@@ -87,6 +90,14 @@ function lineKey(el: HTMLElement, e: React.KeyboardEvent): boolean {
   return true
 }
 
+// Whether a key sends: Cmd+Enter (Ctrl+Enter off a Mac) always; plain Enter when Settings says
+// Enter sends (state.enterSends), and then Shift+Enter or Ctrl+J is the line break.
+export function sendKey(e: React.KeyboardEvent, enterSends = true): boolean {
+  if (e.key !== 'Enter' || e.altKey || e.nativeEvent.isComposing) return false
+  if (e.metaKey || e.ctrlKey) return true
+  return enterSends && state.enterSends && !e.shiftKey
+}
+
 // Give a field the focus with the caret at its end, so that on iOS it takes the typing (a
 // contenteditable with the focus but no caret there takes none). What worked there, step by step:
 // - focus without a scroll of the page (iOS scrolled the passage away), the caret at the end;
@@ -115,7 +126,7 @@ export function focusField(el: HTMLElement | null | undefined) {
   if (el) takeFocus(el)
 }
 
-export function RichInput({ value, onChange, images, onImages, placeholder, autoFocus, onSubmit, onEscape, minRows = 2, onKey, machine, uploadDir, attachRef }: Props) {
+export function RichInput({ value, onChange, images, onImages, placeholder, autoFocus, onSubmit, enterSends = true, onEscape, minRows = 2, onKey, machine, uploadDir, attachRef }: Props) {
   const ed = useRef<HTMLDivElement>(null)
   const fake = useRef<HTMLSpanElement>(null)       // the caret beside an image (mdlive.ts imageCaret)
   const last = useRef<string | null>(null)        // what this field last reported
@@ -304,7 +315,9 @@ export function RichInput({ value, onChange, images, onImages, placeholder, auto
     const sel = selectionOffsets(el)
     if (!sel || composing.current) return false
     const plainEnter = e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey
-    const r = plainEnter ? enterKey(fromDom(el), sel[0], sel[1]) : wrapKey(e, fromDom(el), sel[0], sel[1])
+    // Ctrl+J is a line break, as in a terminal, whatever Enter does.
+    const ctrlJ = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'j'
+    const r = plainEnter || ctrlJ ? enterKey(fromDom(el), sel[0], sel[1]) : wrapKey(e, fromDom(el), sel[0], sel[1])
     if (!r) return false
     edit(r.value, r.start, r.end)
     return true
@@ -411,8 +424,8 @@ export function RichInput({ value, onChange, images, onImages, placeholder, auto
             gapKey(e.nativeEvent)
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return }
+            if (onSubmit && !composing.current && sendKey(e, enterSends)) { e.preventDefault(); onSubmit(); return }
             if (keyEdit(e)) { e.preventDefault(); return }
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSubmit) { e.preventDefault(); onSubmit() }
             if (e.key === 'Escape' && onEscape) { e.preventDefault(); onEscape() }
           }}
         />

@@ -16,7 +16,9 @@ import { closeLinkedNew, initUrl, linkedNew } from './url.ts'
 import { NewSession } from './components/NewSession.tsx'
 import { Lightbox } from './components/Lightbox.tsx'
 import { Palette } from './components/Palette.tsx'
+import { ChangelogDialog } from './components/ChangelogDialog.tsx'
 import { PhoneSetup } from './components/PhoneSetup.tsx'
+import { useCritterIcons } from './critterIcon.tsx'
 import './push.ts'
 import './styles.css'
 
@@ -29,9 +31,10 @@ function App() {
 
   // A tab title that says when something needs you.
   const needs = st.sessions.filter((s) => ['permission', 'asking', 'waiting'].includes(s.status)).length
-  const name = st.agent?.name ?? 'Codinger'
+  const name = st.agent?.name ?? 'workwith'
   useEffect(() => { document.title = needs ? `(${needs}) ${name}` : name }, [needs, name])
-  useFavicon(st.sessions, st.settings.appearance)
+  useFavicon(st.sessions, st.settings.appearance, st.agent?.avatar ? `${ROOT}/agent/icon-64.png` : undefined)
+  useCritterIcons(st.sessions)
 
   // The first load asks for a colour; the welcome stays until you close it.
   const [welcome, setWelcome] = useState(false)
@@ -53,7 +56,7 @@ function App() {
         <Restart />
         <Reload />
         <PhoneSetup />
-        {!st.connected && !st.sessions.length ? <div className="empty">Connecting to the {st.agent ? `${st.agent.name}'s` : 'Codinger'} server…</div>
+        {!st.connected && !st.sessions.length ? <div className="empty">Connecting to the {st.agent ? `${st.agent.name}'s` : 'workwith'} server…</div>
           : st.page === 'artifacts' ? <ArtifactsView />
           : sel ? <SessionView key={sel.id} id={sel.id} />
           : <div className="empty no-session">No session selected.</div>}
@@ -81,11 +84,21 @@ function Update() {
   const [closed, setClosed] = useState(() => localStorage.getItem('codinger.updateClosed'))
   // The first time it asks: your answer can stand for next time too (Settings → Updates from GitHub).
   const [remember, setRemember] = useState(true)
+  const [news, setNews] = useState(false)
   if (!u || u.state === 'current' || (closed === u.head && u.state !== 'updating')) return null
   const subject = u.subject.length > 90 ? u.subject.slice(0, 88) + '…' : u.subject
-  const what = `A Codinger update is ready (${u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “${subject}”).`
+  const what = `A workwith update is ready (${u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “${subject}”).`
   const close = () => { localStorage.setItem('codinger.updateClosed', u.head); setClosed(u.head) }
   const agent = () => { const m = currentMachine(); void api<SessionMeta>('/api/update/agent', 'POST', undefined, m).then((s) => select(globalId(m, s.id))) }
+  // The issues this desk filed that the update builds (server/loop.ts issuesOf), and What's new.
+  const asked = u.asked?.length ? <span className="update-asked" data-pid="update-asked">
+    {u.asked.length === 1 ? 'It has what this desk asked for: ' : `It has ${u.asked.length} things this desk asked for: `}
+    {u.asked.map((i, k) => <span key={i.n}>{k > 0 && ', '}<a href={i.url} target="_blank" rel="noreferrer">{i.title}</a></span>)}
+  </span> : null
+  const more = <>
+    <button className="link" onClick={() => setNews(true)} data-pid="update-news">What's new</button>
+    {news && <ChangelogDialog onClose={() => setNews(false)} />}
+  </>
   if (u.state === 'offer') {
     const answer = (yes: boolean) => {
       if (remember) void api('/api/settings', 'PUT', { autoUpdate: yes ? 'always' : 'never' })
@@ -94,23 +107,29 @@ function Update() {
     }
     return (
       <div className="signin restart">
-        <span>Codinger on GitHub has an update ({u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “{subject}”). Install it and restart?</span>
+        <span>workwith on GitHub has an update ({u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “{subject}”). Install it and restart?</span>
+        {asked}
         <button className="primary" onClick={() => answer(true)}>Update</button>
         <button onClick={() => answer(false)}>Not now</button>
         <label className="update-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember my choice</label>
+        {more}
       </div>
     )
   }
   return (
     <div className="signin restart">
-      {u.state === 'updating' ? <span>Updating Codinger to “{subject}”…</span>
+      {u.state === 'updating' ? <span>Updating workwith to “{subject}”…</span>
         : u.state === 'waiting' ? <>
           <span>{what} It installs when no session is working.</span>
           <button className="primary" onClick={() => void api('/api/update/now', 'POST')}>Update now</button>
         </> : <>
-          <span>{u.state === 'failed' ? `The Codinger update failed: ${u.why}` : `${what} It cannot install by itself: ${u.why}`}</span>
-          <button className="primary" onClick={agent}>Ask an agent to update</button>
+          <span>{u.state === 'failed' ? `The workwith update failed: ${u.why}` : `${what} It cannot install by itself: ${u.why}`}</span>
+          {u.managed
+            ? <button className="primary" onClick={() => void api('/api/update/now', 'POST')}>Try again</button>
+            : <button className="primary" onClick={agent}>Ask an agent to update</button>}
         </>}
+      {asked}
+      {more}
       {u.state !== 'updating' && <button className="link" onClick={close}>Not now</button>}
     </div>
   )
@@ -143,7 +162,7 @@ function Reload() {
   if (!newer) return null
   return (
     <div className="signin restart">
-      <span>Codinger has a newer version of this page. Reload to use it.</span>
+      <span>workwith has a newer version of this page. Reload to use it.</span>
       <span className="banner-btns"><button className="primary" onClick={() => location.reload()}>Reload</button></span>
     </div>
   )
@@ -181,8 +200,8 @@ function Restart() {
   const busy = st.sessions.filter((s) => s.status === 'working' || s.status === 'permission').length
   return (
     <div className="signin restart">
-      {st.restarting !== null ? <span>Restarting Codinger…</span> : <>
-        <span>The Codinger server on {st.web || machineOf(st.selected) ? labelOf(currentMachine()) : 'this machine'} has new code on disk (an update, or a change an agent made). Restart that server to use it.{busy ? ` ${busy} ${busy === 1 ? 'session is' : 'sessions are'} working and will keep working.` : ''}</span>
+      {st.restarting !== null ? <span>Restarting workwith…</span> : <>
+        <span>The workwith server on {st.web || machineOf(st.selected) ? labelOf(currentMachine()) : 'this machine'} has new code on disk (an update, or a change an agent made). Restart that server to use it.{busy ? ` ${busy} ${busy === 1 ? 'session is' : 'sessions are'} working and will keep working.` : ''}</span>
         {/* At the right: Later, then Restart, the main one, last. */}
         <span className="banner-btns">
           <button onClick={() => setHidden(key)}>Later</button>

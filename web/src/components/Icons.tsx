@@ -13,6 +13,7 @@ function Svg({ size = 14, className, title, children }: P & { children: React.Re
 }
 
 export const MenuIcon = (p: P) => <Svg {...p}><path d="M2.5 4h11M2.5 8h11M2.5 12h11" /></Svg>
+export const FlagIcon = (p: P) => <Svg {...p}><path d="M4 14V2.5M4 3h7.5l-1.5 3 1.5 3H4" /></Svg>
 export const XIcon = (p: P) => <Svg {...p}><path d="M4 4l8 8M12 4l-8 8" /></Svg>
 export const ImageIcon = (p: P) => <Svg {...p}><rect x="2" y="3" width="12" height="10" rx="1.5" /><circle cx="6" cy="6.5" r="1.1" /><path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" /></Svg>
 export const ClipIcon = (p: P) => <Svg {...p}><path d="M13 7.5l-5.3 5.3a3.2 3.2 0 01-4.5-4.5L8.6 2.9a2.1 2.1 0 013 3L6.3 11.2a1 1 0 01-1.5-1.5L9.5 5" /></Svg>
@@ -29,12 +30,14 @@ export const UpIcon = (p: P) => <Svg {...p}><path d="M8 13V3M4 7l4-4 4 4" /></Sv
 export const ArchiveIcon = (p: P) => <Svg {...p}><rect x="2" y="3" width="12" height="3" rx="1" /><path d="M3 6v6.5a1 1 0 001 1h8a1 1 0 001-1V6M6.5 8.5h3" /></Svg>
 export const CheckIcon = (p: P) => <Svg {...p}><path d="M3 8.5l3 3 7-7" /></Svg>
 export const BlockIcon = (p: P) => <Svg {...p}><circle cx="8" cy="8" r="5.5" /><path d="M4.2 11.8l7.6-7.6" /></Svg>
+export const PlusIcon = (p: P) => <Svg {...p}><path d="M8 3v10M3 8h10" /></Svg>
 export const DashIcon = (p: P) => <Svg {...p}><path d="M4 8h8" /></Svg>
 export const BackIcon = (p: P) => <Svg {...p}><path d="M10 3L5 8l5 5" /></Svg>
 export const ChevronIcon = (p: P) => <Svg {...p}><path d="M6 3.5l4.5 4.5L6 12.5" /></Svg>
 export const GearIcon = (p: P) => <Svg {...p}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" /><circle cx="8" cy="8" r="4.2" /></Svg>
 export const CommentIcon = (p: P) => <Svg {...p}><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></Svg>
 export const UndoIcon = (p: P) => <Svg {...p}><path d="M5 6.5H10a3 3 0 010 6H7" /><path d="M7 4L4.5 6.5 7 9" /></Svg>
+export const CopyIcon = (p: P) => <Svg {...p}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h.5" /></Svg>
 export const TrashIcon = (p: P) => <Svg {...p}><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></Svg>
 export const StarIcon = (p: P) => <Svg {...p}><path d="M8 1.8l1.85 3.95 4.3.55-3.15 2.95.8 4.25L8 11.4l-3.8 2.1.8-4.25L1.85 6.3l4.3-.55z" /></Svg>
 export const PanelIcon = (p: P) => <Svg {...p}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M10 3v10" /></Svg>

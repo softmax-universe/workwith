@@ -48,7 +48,7 @@ const clock = (ts: number) => new Date(ts).toLocaleString('en-US', { weekday: 's
 const noPush = (why: string) => new Error(`No push went: ${why}. Ask the user to link this machine to the hub and to turn on notifications in Codinger's Settings, in the app on the phone's home screen.`)
 
 async function ask(sid: string, question: string, then?: string) {
-  const title = ctx.session(sid)?.title ?? 'Codinger'
+  const title = ctx.session(sid)?.title ?? 'workwith'
   const why = await ctx.push({ title, body: question, session: sid })
   if (why) throw noPush(why)
   update((s) => { s.open = [...s.open.filter((o) => o.sid !== sid || Date.now() - o.ts < 7 * 86400_000), { sid, question, ts: Date.now(), ...(then ? { then } : {}) }] })
@@ -100,7 +100,7 @@ export function askTools(id: string): Tool[] {
       run: async ({ body, title }) => {
         const b = String(body ?? '').trim()
         if (!b) throw new Error('Give a body')
-        const why = await ctx.push({ title: String(title ?? '').trim() || (ctx.session(id)?.title ?? 'Codinger'), body: b, session: id })
+        const why = await ctx.push({ title: String(title ?? '').trim() || (ctx.session(id)?.title ?? 'workwith'), body: b, session: id })
         if (why) throw noPush(why)
         return 'Sent.'
       },
@@ -166,4 +166,24 @@ export function askTools(id: string): Tool[] {
       },
     },
   ]
+}
+
+// ---- Settings ---------------------------------------------------------------
+
+// Every session's asks, for the Asks page in Settings.
+export function asksReply(title: (sid: string) => string | undefined) {
+  const st = load()
+  return {
+    schedules: st.schedules.map((s) => ({ ...s, title: title(s.sid) })),
+    open: st.open.map((o) => ({ ...o, title: title(o.sid) })),
+  }
+}
+
+// The user cancelled a scheduled ask in Settings. The session's transcript says so; its agent sees it in list_asks.
+export function cancelAsk(id: string): boolean {
+  const s = load().schedules.find((x) => x.id === id)
+  if (!s) return false
+  update((x) => { x.schedules = x.schedules.filter((y) => y.id !== id) })
+  ctx.notice(s.sid, `You cancelled the scheduled ask "${s.question}" in Settings.`)
+  return true
 }

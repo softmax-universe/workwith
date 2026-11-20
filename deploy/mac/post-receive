@@ -7,7 +7,8 @@
 export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 unset GIT_DIR
 cd "$(dirname "$0")/../.." || exit 1
-PORT=$(sed -n 's/^PORT=//p' "$HOME/.codinger/desk.env" 2>/dev/null | tr -d "'\""); PORT=${PORT:-4545}
+D=$(git config codinger.home || echo "$HOME/.codinger")
+PORT=$(sed -n 's/^PORT=//p' "$D/desk.env" 2>/dev/null | tr -d "'\""); PORT=${PORT:-4545}
 restart=0
 while read -r old new ref; do
   [ "$ref" = refs/heads/main ] || continue

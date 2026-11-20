@@ -19,6 +19,10 @@ By hand, once per host:
 3. `deploy/install.sh <host> <folder> <agent user> [env file to source]`: the systemd unit,
    the Caddy site, and the AGENTS.md, over SSH with sudo.
 
+A new session starts in the agent's home folder unless the person picks another one: most
+work at a desk is on the agent itself, not in a project. Set `CODINGER_DEFAULT_DIR` in
+`codinger.env` to start somewhere else (`CODINGER_AGENT_CWD`, if set, is the default otherwise).
+
 Update: build in `/opt/codinger`, then `sudo systemctl restart codinger-workwith`.
 
 Several desks on one site: when the proxy serves each under its own path and passes the path

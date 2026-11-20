@@ -173,7 +173,7 @@ export function UsageAudit({ price, weekCeil }: { price: number | null; weekCeil
         {itc != null && <>ITC: {cents(itc)} for each API dollar at full utilization. </>}
         {itc != null && planCost != null && <>Utilization: {used(allUsd)}.</>}
       </p>}
-      {!rows.length ? <p className="muted cost-note">{u.scanning ? 'Codinger is still reading the transcripts.' : 'No API work in this time.'}</p> : view === 'graph' ? <>
+      {!rows.length ? <p className="muted cost-note">{u.scanning ? 'workwith is still reading the transcripts.' : 'No API work in this time.'}</p> : view === 'graph' ? <>
         <MeasurePick value={m} set={setMeasure} options={options} />
         <LineChart key={m} x={dayKeys.map(fmtDay)} lines={lines} fmt={fmt} tick={m === 'tokens' ? count : dollars}
           extra={(i) => <div className="muted">{fmt(lines.reduce((s, l) => s + (l.values[i] ?? 0), 0))} in all folders</div>}
@@ -210,7 +210,7 @@ export function UsageAudit({ price, weekCeil }: { price: number | null; weekCeil
         </tr>)}</tbody>}
         <tfoot><tr><td>All folders</td><td>{money(total)}</td><td>{fee(total, etc)}</td><td>{fee(total, itc)}</td><td>{used(total)}</td><td></td><td></td><td></td></tr></tfoot>
       </table>}
-      {u.scanning && rows.length > 0 && <p className="muted cost-note">Codinger is still reading the transcripts. The numbers will go up.</p>}
+      {u.scanning && rows.length > 0 && <p className="muted cost-note">workwith is still reading the transcripts. The numbers will go up.</p>}
       <p className="muted cost-note">
         "The project it worked on" follows the files that the tools read or change. A call with no files counts for the last project the conversation worked on.
         Tokens in include the tokens read from the cache.
@@ -218,10 +218,10 @@ export function UsageAudit({ price, weekCeil }: { price: number | null; weekCeil
         ITC (ideal token cost) is what it would cost you if you used all of your plan's weekly limit.
         Utilization is how much of your plan the work used: its ITC as a percent of what your plan cost for these days.
         {outside.length > 0 && <> "Outside Claude Code" is your use in other products, as claude.ai reports it for your weekly limit, in dollars of API work at what a full week is worth. It is not in the total. claude.ai gives whole percents, so it shows in steps of about {money((weekCeil ?? 0) / 100)}.{u.surfaces.resetsAt && <> Your weekly limit resets on {new Date(u.surfaces.resetsAt).toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}.</>}</>}
-        {u.others.length > 0 && <> Codinger reads the ledgers of your other machines every 30 minutes, through web.codinger.app, and keeps a copy: {u.others.map((l) => `${l.label ?? l.machine} (${l.at ? when(l.at) : 'not read yet'})`).join(', ')}.</>}
+        {u.others.length > 0 && <> workwith reads the ledgers of your other machines every 30 minutes, through web.codinger.app, and keeps a copy: {u.others.map((l) => `${l.label ?? l.machine} (${l.at ? when(l.at) : 'not read yet'})`).join(', ')}.</>}
       </p>
       <p className="muted cost-note">
-        Codinger keeps a copy of every Claude Code transcript in <code>{home(u.archive.dir)}</code>
+        workwith keeps a copy of every Claude Code transcript in <code>{home(u.archive.dir)}</code>
         {u.archive.at ? <>: {bytes(u.archive.bytes)} in {u.archive.files.toLocaleString()} files</> : ''}.
         Claude Code deletes its own copies after 30 days. You can delete old files from the copy to get space back; the totals stay.
         {u.since && <> The ledger starts on {fmtDay(u.since)}.</>}

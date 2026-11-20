@@ -1,6 +1,6 @@
 {
-  "name": "Codinger",
-  "short_name": "Codinger",
+  "name": "workwith",
+  "short_name": "workwith",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

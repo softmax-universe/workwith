@@ -5,6 +5,7 @@ import type { Block, Event } from '../../../shared/types.ts'
 import { embedOf, mediaKind, mediaUrlIn, type MediaKind } from '../../../shared/media.ts'
 import { machineOf, media } from '../store.ts'
 import { FileIcon, GlobeIcon, ImageIcon } from './Icons.tsx'
+import { FrameBox } from '../frameZoom.tsx'
 
 export const SHOW_FILE = 'mcp__codinger__show_file'
 
@@ -41,9 +42,9 @@ export function MediaLine({ sid, b, result }: { sid: string; b: Extract<Block, {
             ? <iframe className="media-frame media-embed" src={embed} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen aria-label={caption || name} />
             : <video className="media-video" src={src} controls preload="metadata" playsInline />)}
           {kind === 'audio' && <audio className="media-audio" src={src} controls preload="metadata" />}
-          {kind === 'pdf' && <iframe className="media-frame" src={src} aria-label={caption || name} />}
+          {kind === 'pdf' && <FrameBox><iframe className="media-frame" src={src} aria-label={caption || name} /></FrameBox>}
           {/* Served sandboxed (server/index.ts), so it never runs as Codinger. */}
-          {kind === 'page' && <iframe className="media-frame" src={src} sandbox="allow-scripts allow-popups" aria-label={caption || name} />}
+          {kind === 'page' && <FrameBox><iframe className="media-frame" src={src} sandbox="allow-scripts allow-popups" aria-label={caption || name} /></FrameBox>}
         </div>
       )}
     </div>

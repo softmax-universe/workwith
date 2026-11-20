@@ -2,7 +2,9 @@
 // people in (deploy/README.md). All of it is off unless the environment asks:
 //
 //   CODINGER_AGENT_NAME     the agent's name: the sidebar, the tab, "Message Ada"
-//   CODINGER_AGENT_AVATAR   an image file: its face in the sidebar
+//   CODINGER_AGENT_AVATAR   an image file: its face in the sidebar (unset: the workwith logo,
+//                           assets/workwith-logo.png), shown as it is: a theme that wants
+//                           it round sets .brand-avatar { border-radius: 50% }
 //   CODINGER_AGENT_CSS      a CSS file that sets its colours (no theme prompt then)
 //   CODINGER_AGENT_COLOR    the colour of the installed app's title bar, e.g. #0f4a44
 //   CODINGER_AGENT_ABOUT    one line on what the agent is for: the page's description in link previews
@@ -10,14 +12,23 @@
 //                           it, serve as the tab icon and preview image; the avatar stands in otherwise)
 //   CODINGER_AGENT_CWD      the agent's own folder: "+ New session" starts a session there at
 //                           once, with no dialog (people at a desk have no other folder to pick)
+//   CODINGER_DEFAULT_DIR    the folder the new session dialog starts in (unset: the agent's folder,
+//                           else the home folder); for a desk where most work is not in a project
 //   CODINGER_USER_HEADER    the header the proxy names the signed-in person in
 //   CODINGER_PEOPLE         names to show: "ada@example.com=Ada,grace@example.com=Grace"
 //                           (otherwise the login before the @, capitalised)
 //   CODINGER_ASK_NAME       1: a browser that the proxy names nobody in asks its person for a
 //                           name and keeps it (cookie codinger.name). Nothing checks that name:
 //                           only for a page that people reach without a sign-in, e.g. a tunnel
-//   CODINGER_BILLING        api: show API spend, not plan limits (Bedrock and Vertex need not say)
+//   CODINGER_BILLING        api: show API spend, not plan limits (Bedrock and Vertex need not say).
+//                           fallback: sessions run on the Claude Code login's plan, and on the
+//                           Bedrock/Vertex the environment sets up only while there is no login
+//                           or the plan's limit is reached (server/billing.ts)
+//   CODINGER_ALERT_CMD      (server/billing.ts) a shell command run when sessions go to per-token
+//                           billing, with the reason in CODINGER_ALERT_TEXT
 //   CODINGER_NO_SHELL       (server/index.ts) 1: no shell commands, for a page open to strangers
+//   CODINGER_HISTORY        (server/index.ts) own: recent folders and conversations to resume come
+//                           only from this desk's sessions, not all of the user's Claude Code history
 //   CODINGER_HOSTS          (server/index.ts) may hold "*.trycloudflare.com" for such a tunnel
 //   CODINGER_SUPERVISED     (server/index.ts) 1: a restart only stops this server, and the
 //                           supervisor (systemd, launchd) starts the next one
@@ -25,32 +36,42 @@
 //                           e.g. /desk/ada (no trailing slash); unset, the root (server/base.ts)
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type http from 'node:http'
+import { billingState } from './billing.ts'
 import type { AgentInfo, Person } from '../shared/types.ts'
 import { parseBase } from './base.ts'
+import { codingerEnv } from './oldenv.ts'
 
-const env = process.env
-// Codinger was called Codiner until October 2026; the old names (CODINER_*) still work.
-export const desk = (key: string): string | undefined => env[`CODINGER_${key}`] ?? env[`CODINER_${key}`]
+export const desk = codingerEnv
 const existing = (file: string | undefined) => file && fs.existsSync(file) ? file : null
 const NAME = desk('AGENT_NAME')
-const AVATAR = existing(desk('AGENT_AVATAR'))
+// A named desk without a face of its own wears the workwith logo (assets/, with its sized copies).
+const LOGO = path.join(import.meta.dirname, '..', 'assets', 'workwith-logo.png')
+const AVATAR = existing(desk('AGENT_AVATAR')) ?? (NAME ? existing(LOGO) : null)
 const AVATAR_TYPE = AVATAR ? { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' }[path.extname(AVATAR).toLowerCase()] ?? 'application/octet-stream' : ''
 const THEME = existing(desk('AGENT_CSS'))
 const CWD = desk('AGENT_CWD') || undefined
 const ABOUT = desk('AGENT_ABOUT')?.trim() || undefined
 const ICON_SIZES = new Set(['32', '64', '180', '512'])
 
+// The folder a new session starts in, unless you pick another one: absolute, as ~ is the server's.
+export const DEFAULT_DIR = path.resolve((desk('DEFAULT_DIR') || CWD || os.homedir()).replace(/^~(?=$|[\\/])/, os.homedir()))
+
 export const ASK_NAME = desk('ASK_NAME') === '1'
 export const BASE = parseBase(desk('BASE'))
+// People reach this desk through a proxy (a host name, a path or a sign-in header of its own):
+// their browsers are on other machines, where this machine's localhost is not.
+export const PROXIED = !!(desk('HOSTS') || BASE || desk('USER_HEADER'))
 
 export const agentInfo = (): AgentInfo | undefined =>
   NAME ? { name: NAME, avatar: !!AVATAR, theme: !!THEME, ...(CWD ? { cwd: CWD } : {}) } : undefined
 
 // Claude Code on Bedrock or Vertex bills each token; there is no plan with limits to show.
+// CODINGER_BILLING=fallback: the plan, and the provider only while the plan can't (server/billing.ts).
 export const billing = (): 'api' | 'plan' =>
-  env.CLAUDE_CODE_USE_BEDROCK || env.CLAUDE_CODE_USE_VERTEX || desk('BILLING') === 'api' ? 'api' : 'plan'
+  desk('BILLING') === 'api' ? 'api' : billingState().on
 
 const NAMES = new Map((desk('PEOPLE') ?? '').split(',').flatMap((x) => {
   const at = x.indexOf('=')
@@ -93,7 +114,7 @@ function iconSize(file: string): string {
 
 // What makes the page installable as an app: the agent's name and its face as the icon.
 function manifest() {
-  const name = NAME ?? 'Codinger'
+  const name = NAME ?? 'workwith'
   const color = desk('AGENT_COLOR') ?? '#1d1c1a'
   return {
     name: NAME ? `Work with ${name}` : name, short_name: name,
@@ -141,8 +162,9 @@ export function agentPage(html: string, origin: string): string {
   if (!NAME) return html
   const name = attr(NAME)
   const about = attr(ABOUT ?? `${NAME}'s desk: work with ${NAME} here.`)
-  html = html.replace('<title>Codinger</title>', `<title>Work with ${name}</title>`)
-    .replace('<meta name="apple-mobile-web-app-title" content="Codinger" />', `<meta name="apple-mobile-web-app-title" content="${name}" />`)
+  html = html.replace('<title>workwith</title>', `<title>Work with ${name}</title>`)
+    .replace(/ *<!-- preview:[^]*?<!-- \/preview -->\n/, '')
+    .replace('<meta name="apple-mobile-web-app-title" content="workwith" />', `<meta name="apple-mobile-web-app-title" content="${name}" />`)
   const color = desk('AGENT_COLOR')
   if (color) html = html.replace('<meta name="theme-color" content="#1d1c1a" />', `<meta name="theme-color" content="${attr(color)}" />`)
   const tags = [

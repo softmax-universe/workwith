@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import { formatAnswer, formatArtifactNote, formatNote } from '../shared/asks.ts'
-import { formatDismissed, formatDone, itemsOf } from '../shared/blocks.ts'
+import { formatChecks, formatDismissed, formatDone, itemsOf, taskDone } from '../shared/blocks.ts'
 import { formatReview } from '../shared/review.ts'
 import { formatMail } from '../shared/mail.ts'
 import { flagArgs } from '../shared/flags.ts'
@@ -18,11 +18,14 @@ import { mediaTypeOf, splitImages, withoutImages } from '../shared/images.ts'
 import { splitPastes } from '../shared/pastes.ts'
 import type { Block, Event, Part, Person, PermissionMode, SessionMeta, Status, Usage } from '../shared/types.ts'
 import { AUTH_ERROR, CLAUDE, childEnv } from './auth.ts'
+import { LIMIT_ERROR, modelFor, onPlan, sessionEnv } from './billing.ts'
 import { entryBefore } from './history.ts'
 import { Proc } from './proc.ts'
+import { codingerEnv } from './oldenv.ts'
 import { keepMediaIn } from './media.ts'
 import { addSpend, costOf } from '../shared/prices.ts'
 import { appendEvent, imageFile, knownWindow, learnModel, learnWindow, promptFile, readEvents, writeEvents } from './store.ts'
+import { gapNote, lastSaid } from '../shared/gap.ts'
 
 export type Hooks = {
   meta(s: Session): void
@@ -30,6 +33,8 @@ export type Hooks = {
   delta(s: Session, text: string, reset: boolean): void
   truncate(s: Session, seq: number): void
   authFailed(s: Session): void
+  // The plan's usage limit stopped a turn (server/billing.ts); resetsAt in seconds.
+  limitHit(s: Session, resetsAt?: number): void
   usage(u: Usage): void
   commands(s: Session, list: SlashCommand[]): void
   mcpServers(s: Session): Record<string, unknown> | null   // MCP servers to add once the process starts
@@ -45,7 +50,7 @@ export const claudeName = (id: string) => `codinger-${id}`
 const MAX_RESULT = 8000
 // How long a finished session keeps its claude process before it sleeps.
 // CODINGER_SLEEP_MS overrides it (for tests).
-const IDLE_SLEEP_MS = Number(process.env.CODINGER_SLEEP_MS ?? process.env.CODINER_SLEEP_MS) || 5 * 60_000
+const IDLE_SLEEP_MS = Number(codingerEnv('SLEEP_MS')) || 5 * 60_000
 
 // A message that is only a slash command goes in as one, as if typed at the claude prompt;
 // nothing hidden goes with it.
@@ -64,6 +69,7 @@ export class Session {
   private stopping = false       // we asked the process to end (sleep, close, delete)
   private interrupted = false
   private authRetry: number | null = null  // a message that failed for want of a login, to send again
+  private limited: { resetsAt?: number } | null = null  // the plan's limit stopped this turn
   private terminalOnly = new Set(['doctor', 'color', 'focus', 'reload-plugins', 'heapdump'])
   private pending = new Map<string, { input: any; suggestions: any[] }>()
   // The prompt cache's clock starts when an API call starts, which the stream doesn't
@@ -74,6 +80,7 @@ export class Session {
   private costSeen = new Map<string, number>()  // message id → dollars counted, as its lines come in
   private seqFrom = 1  // the first number for an empty transcript
   private hooks: Hooks
+  private atRest: (() => void) | null = null
   private launch: () => Launch
   // The last server stopped mid-turn without handing the process on (a crash, a forced stop).
   cut = false
@@ -90,6 +97,20 @@ export class Session {
     // A status saved by an older version can disagree with what it rests on (a lead reset once left 'asking' with no asks).
     if (meta.status === 'asking' && !meta.pendingAsks) meta.status = meta.unread ? 'waiting' : 'idle'
     if (meta.status === 'waiting' && !meta.unread) meta.status = 'idle'
+    // Sessions from before Codinger kept writers learn them once from their transcript.
+    if (!meta.writers && !meta.archived && meta.kind === 'worker') {
+      for (const e of readEvents(meta.id)) if (e.t === 'user') this.wrote(e.parts, e.by, e.ts)
+      meta.writers ??= {}
+    }
+  }
+
+  // Each person who wrote a part of a message, or sent it, wrote in this session at ts.
+  private wrote(parts: Part[], by: Person | undefined, ts: number) {
+    for (const p of [...parts.map((x) => x.by), by]) {
+      if (!p) continue
+      const w = (this.meta.writers ??= {})
+      w[p.login] = { name: p.name, last: Math.max(ts, w[p.login]?.last ?? 0), ...(p.guest ? { guest: true } : {}) }
+    }
   }
 
   // Claude Code runs background work (shells, agents) that starts a turn when it ends.
@@ -131,10 +152,14 @@ export class Session {
     m.running = !!this.proc
     this.scheduleSleep()
     this.hooks.meta(this)
+    this.rest()
   }
 
   // A finished session ends its process after a while; the next message resumes it.
   // Never while a turn, a permission prompt, a compaction or background work is live.
+  // Ends an idle process so the next message starts one on the account billing uses now.
+  restartIfIdle() { if (this.canSleep()) this.stop() }
+
   private canSleep() {
     const m = this.meta
     return !!this.proc && ['idle', 'waiting', 'asking'].includes(m.status) && !m.compacting && !this.background
@@ -166,7 +191,7 @@ export class Session {
       // Its name among Claude Code sessions (what agents message it by) carries its Codinger id.
       '--name', claudeName(m.id),
       '--permission-mode', m.permissionMode,
-      ...(m.model ? ['--model', m.model] : []),
+      ...(modelFor(m.model) ? ['--model', modelFor(m.model)!] : []),
       ...flagArgs(m.flags, os.homedir()),
       ...(m.resumeAt ? ['--resume', m.claudeSessionId, '--resume-session-at', m.resumeAt, '--fork-session']
         : m.started ? ['--resume', m.claudeSessionId] : ['--session-id', m.claudeSessionId]),
@@ -174,7 +199,7 @@ export class Session {
       ...args,
     ]
     if (!fs.existsSync(m.cwd)) throw new Error(`Directory not found: ${m.cwd}`)
-    const p = Proc.spawn(CLAUDE, full, { cwd: m.cwd, env: childEnv() })
+    const p = Proc.spawn(CLAUDE, full, { cwd: m.cwd, env: sessionEnv(childEnv()) })
     this.proc = p
     this.listen(p)
     // Ask for the command list (with descriptions) the way the Agent SDK does.
@@ -265,7 +290,7 @@ export class Session {
       cmd: CLAUDE,
       args: [
         '-p', '--output-format', 'json', '--permission-mode', m.permissionMode,
-        ...(m.model ? ['--model', m.model] : []),
+        ...(modelFor(m.model) ? ['--model', modelFor(m.model)!] : []),
         // Its flags too: the same tools, so the same prompt cache.
         ...flagArgs(m.flags, os.homedir()),
         '--resume', m.claudeSessionId, '--fork-session', '--no-session-persistence', '--max-turns', '1',
@@ -273,7 +298,7 @@ export class Session {
         ...args,
       ],
       cwd: m.cwd,
-      env: childEnv(),
+      env: sessionEnv(childEnv()),
     }
   }
 
@@ -282,6 +307,18 @@ export class Session {
   setMcp(servers: Record<string, unknown>) {
     if (!this.proc || this.stopping) return
     this.write({ type: 'control_request', request_id: `mcp-${randomUUID()}`, request: { subtype: 'mcp_set_servers', servers } })
+  }
+
+  // Do something that needs the session at rest with no process, like a move to another
+  // folder (a process keeps the folder it started in): at once, or when the turn ends.
+  whenAtRest(then: () => void) { this.atRest = then; this.rest() }
+
+  private rest() {
+    if (!this.atRest || this.outstanding || this.pending.size || this.background || this.meta.compacting) return
+    if (this.proc) { if (!this.stopping) this.stop(); return }
+    const then = this.atRest
+    this.atRest = null
+    then()
   }
 
   stop() {
@@ -324,6 +361,10 @@ export class Session {
       if (!file || !fs.existsSync(file)) return
       content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: fs.readFileSync(file).toString('base64') } })
     }
+    // After a long quiet, Claude hears how long it was and what time it is now.
+    const quiet = lastSaid(this.getEvents())
+    const gap = quiet == null ? null : gapNote(Date.now() - quiet)
+    if (gap) addText(gap)
     for (const p of parts) {
       // A long paste goes to Claude as the text it was; images pasted into the text go where they sit in it.
       for (const c of splitPastes(partText(p))) {
@@ -345,7 +386,9 @@ export class Session {
     this.meta.pendingAsks = 0
     this.meta.pendingCritical = 0
     this.meta.pendingReviews = 0
+    this.meta.taskDone = false
     this.meta.error = null
+    this.wrote(parts, by, Date.now())
     this.record('user', { parts, uuid, csid: this.meta.claudeSessionId, ...(from ? { from } : {}), ...(by ? { by } : {}), ...(tasks?.length ? { tasks } : {}) })
     this.refresh()
   }
@@ -408,7 +451,7 @@ export class Session {
     this.seqFrom = this.nextSeq()
     this.events = []
     writeEvents(m.id, [])
-    Object.assign(m, { claudeSessionId: randomUUID(), started: false, resumeAt: null, context: { used: 0, window: m.context.window }, error: null, unread: false, pendingAsks: 0, pendingCritical: 0, pendingReviews: 0, lastText: '' })
+    Object.assign(m, { claudeSessionId: randomUUID(), started: false, resumeAt: null, context: { used: 0, window: m.context.window }, error: null, unread: false, pendingAsks: 0, pendingCritical: 0, pendingReviews: 0, taskDone: false, lastText: '' })
     this.hooks.truncate(this, 0)
     this.notice(note)
     this.refresh()
@@ -525,6 +568,7 @@ export class Session {
           else if (b.type === 'tool_use') blocks.push({ type: 'tool_use', id: b.id, name: b.name, input: b.input })
         }
         if (synthetic && blocks.some((b) => b.type === 'text' && AUTH_ERROR.test(b.text))) this.authError()
+        if (synthetic && onPlan() && blocks.some((b) => b.type === 'text' && LIMIT_ERROR.test(b.text))) this.limited ??= {}
         if (!synthetic && a.usage) {
           const u = a.usage
           // The first call of a conversation: how big a new session starts.
@@ -579,6 +623,14 @@ export class Session {
         } else if (msg.is_error) {
           m.error = String(msg.result ?? msg.subtype ?? 'error').slice(0, 500)
           if (AUTH_ERROR.test(m.error) && this.authRetry == null) this.authError()
+          if (LIMIT_ERROR.test(m.error) && onPlan()) this.limited ??= {}
+        }
+        if (this.limited) {
+          const { resetsAt } = this.limited
+          this.limited = null
+          const last = this.getEvents().findLast((e) => e.t === 'user')
+          if (last && this.authRetry == null) this.authRetry = last.seq
+          this.hooks.limitHit(this, resetsAt)
         }
         if (!this.outstanding) this.interrupted = false
         if (msg.num_turns > 0 || msg.is_error) {
@@ -606,6 +658,7 @@ export class Session {
         m.pendingAsks = 0
         m.pendingCritical = 0
         m.pendingReviews = 0
+        m.taskDone = false
         this.notice('Conversation cleared. Claude starts fresh from here.')
         this.refresh()
         return
@@ -636,22 +689,26 @@ export class Session {
       case 'rate_limit_event': {
         const i = msg.rate_limit_info ?? {}
         const w = i.unifiedWindows ?? {}
+        if (i.status === 'rejected' && !i.isUsingOverage && onPlan()) this.limited = { resetsAt: i.resetsAt }
         this.hooks.usage({ fiveHour: w.five_hour?.utilization, sevenDay: w.seven_day?.utilization, resetsAt: i.resetsAt, status: i.status, ...(i.isUsingOverage ? { overage: true } : {}) })
         return
       }
     }
   }
 
-  // Questions and items to consider in Claude's text since the user last spoke.
-  private openAsks(): { pendingAsks: number; pendingCritical: number; pendingReviews: number } {
+  // Questions and items to consider in Claude's text since the user last spoke, and whether it said the task is done.
+  private openAsks(): { pendingAsks: number; pendingCritical: number; pendingReviews: number; taskDone: boolean } {
     const ev = this.getEvents()
-    let n = 0, critical = 0, reviews = 0
+    let n = 0, critical = 0, reviews = 0, done = false
     for (let i = ev.length - 1; i >= 0; i--) {
       const e = ev[i]
       if (e.t === 'user') break
-      if (e.t === 'assistant') for (const b of e.blocks) if (b.type === 'text') for (const it of itemsOf(b.text)) { n++; if (it.kind === 'consider' && it.critical) critical++; if (it.kind === 'review') reviews++ }
+      if (e.t === 'assistant') for (const b of e.blocks) if (b.type === 'text') {
+        if (taskDone(b.text)) done = true
+        for (const it of itemsOf(b.text)) { n++; if (it.kind === 'consider' && it.critical) critical++; if (it.kind === 'review') reviews++ }
+      }
     }
-    return { pendingAsks: n, pendingCritical: critical, pendingReviews: reviews }
+    return { pendingAsks: n, pendingCritical: critical, pendingReviews: reviews, taskDone: done }
   }
 
   // A plain-text rendering of the recent transcript, for the lead agent.
@@ -662,7 +719,7 @@ export class Session {
     while (start > 0 && seen < turns) { start--; if (ev[start].t === 'user') seen++ }
     const lines: string[] = []
     for (const e of ev.slice(start)) {
-      if (e.t === 'user') lines.push(`USER${e.from ? ` (via ${e.from})` : ''}: ${e.parts.map((p) => p.kind === 'note' ? formatNote(p.quote, p.text) : p.kind === 'answer' ? `[answer ${p.askKey}] ${p.choices?.join('; ') ?? ''} ${p.text}` : p.kind === 'dismiss' ? formatDismissed(p.items) : p.kind === 'done' ? formatDone(p.items) : partText(p)).join('\n')}`)
+      if (e.t === 'user') lines.push(`USER${e.from ? ` (via ${e.from})` : ''}: ${e.parts.map((p) => p.kind === 'note' ? formatNote(p.quote, p.text) : p.kind === 'answer' ? `[answer ${p.askKey}] ${p.choices?.join('; ') ?? ''} ${p.text}` : p.kind === 'dismiss' ? formatDismissed(p.items) : p.kind === 'done' ? formatDone(p.items) : p.kind === 'check' ? formatChecks(p.items) : partText(p)).join('\n')}`)
       else if (e.t === 'assistant') for (const b of e.blocks) {
         if (b.type === 'text') lines.push(`CLAUDE: ${b.text}`)
         else if (b.type === 'tool_use') lines.push(`  [${b.name}] ${toolSummary(b.name, b.input)}`)
@@ -685,6 +742,7 @@ function partText(p: Part): string {
     : p.kind === 'answer' ? formatAnswer(p.askKey.split(':').pop()!, p.question, p.choices, t, p.draft)
     : p.kind === 'dismiss' ? (n ? `${n}:\n` : '') + formatDismissed(p.items)
     : p.kind === 'done' ? (n ? `${n}:\n` : '') + formatDone(p.items)
+    : p.kind === 'check' ? (n ? `${n}:\n` : '') + formatChecks(p.items)
     : p.kind === 'review' ? (n ? `${n}:\n` : '') + formatReview(p.files, p.comments)
     : p.kind === 'mail' ? formatMail(p)
     : t
@@ -695,7 +753,7 @@ function overview(text: string): string {
   return text
     .replace(/^```ask\b[^\n]*\n([\s\S]*?)^```[ \t]*$/gm, (_, body: string) => `Q: ${body.split('\n')[0]}`)
     .replace(/^\s*<ask\b[^>]*>\s*\n?([^\n]*)[\s\S]*?<\/ask>\s*$/gm, (_, q: string) => `Q: ${q}`)
-    .replace(/^\s*<\/?(answer|details|consider|run|review)\b[^>]*>\s*$/gm, '')
+    .replace(/^\s*<\/?(answer|details|consider|run|review|task-done)\b[^>]*>\s*$/gm, '')
     .trim().slice(-400)
 }
 

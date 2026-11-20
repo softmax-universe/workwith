@@ -46,7 +46,7 @@ export function HistoryDialog({ onClose }: { onClose(): void }) {
             <button key={h.id} className="history-item" disabled={busy !== null} onClick={() => void open(h)}>
               <div className="history-top">
                 <span className="history-title">{h.title}</span>
-                <span className="muted">{busy === h.id ? 'Opening…' : h.codingerId ? 'in Codinger' : timeAgo(h.mtime)}</span>
+                <span className="muted">{busy === h.id ? 'Opening…' : h.codingerId ? 'in workwith' : timeAgo(h.mtime)}</span>
               </div>
               <div className="muted mono history-dir">{shortPath(h.cwd)}</div>
               {(h.lastPrompt || h.firstPrompt) && <div className="history-prompt">{(h.lastPrompt || h.firstPrompt).split('\n')[0]}</div>}

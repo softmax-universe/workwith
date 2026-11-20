@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { StatusPanel } from './StatusPanel.tsx'
-import type { SessionGroup, SessionMeta, Usage } from '../../../shared/types.ts'
-import { api, changed, closeSession, showArchive, currentMachine, globalId, LOCAL, localId, machineList, machineOf, offline, select, setComposer, state, useStore, type Machine, labelOf, ROOT } from '../store.ts'
+import type { Person, SessionGroup, SessionMeta, Usage } from '../../../shared/types.ts'
+import { api, archiveAsksOf, changed, closeSession, showArchive, currentMachine, globalId, LOCAL, localId, machineList, machineOf, offline, select, setComposer, state, useStore, type Machine, labelOf, ROOT } from '../store.ts'
 import { HistoryDialog } from './HistoryDialog.tsx'
 import { fatigue, timeAgo } from '../util.ts'
-import { Mascot, STATUS_LABEL } from './Mascot.tsx'
+import { STATUS_LABEL } from './Mascot.tsx'
+import { iconItems, SessionFace } from './ProjectIcon.tsx'
+import { Who } from './Who.tsx'
 import { NewSession } from './NewSession.tsx'
-import { ArchiveIcon, ChevronIcon, DesktopIcon, GearIcon, GlobeIcon, LaptopIcon, SearchIcon, TerminalIcon, XIcon } from './Icons.tsx'
+import { ArchiveIcon, ChevronIcon, FlagIcon, DesktopIcon, GearIcon, GlobeIcon, LaptopIcon, SearchIcon, TerminalIcon, XIcon } from './Icons.tsx'
 import { TasksDialog } from './TasksDialog.tsx'
+import { ReportDialog } from './ReportDialog.tsx'
 import { ArtifactIcon } from './Artifacts.tsx'
 import { SettingsDialog } from './SettingsDialog.tsx'
 import { cacheOf, minutes, spendOf, useNow, usd } from '../cache.ts'
@@ -37,7 +40,7 @@ function tiers(list: SessionMeta[], same = (a: SessionMeta, b: SessionMeta) => a
 }
 // On a shut machine or group: how many sessions in it wait on you, as the tab's icon counts them.
 function NeedBadge({ list }: { list: SessionMeta[] }) {
-  const n = list.filter((s) => s.kind === 'worker' && !s.archived && (NEEDS_YOU.includes(s.status) || alertOf(s))).length
+  const n = list.filter((s) => s.kind === 'worker' && !s.archived && !s.dropped && (NEEDS_YOU.includes(s.status) || alertOf(s))).length
   return n > 0 ? <span className="need-badge">{Math.min(n, 99)}</span> : null
 }
 
@@ -187,6 +190,7 @@ export function Sidebar({ width }: { width: number }) {
   // Settings, on its page: in the page's address (url.ts). true: the page you looked at last.
   const setSettings = (p: Page | true) => { state.settingsPage = p === true ? localStorage.getItem('codinger.settingsPage') ?? 'general' : p; changed() }
   const [tasks, setTasks] = useState(false)
+  const [report, setReport] = useState(false)
   const [menu, setMenu] = useState<MenuAt | null>(null)
   const openMenu = (e: React.MouseEvent, items: MenuItem[]) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, items }) }
   const local = st.machines[LOCAL]
@@ -227,7 +231,11 @@ export function Sidebar({ width }: { width: number }) {
       {/* Only the sessions that need you as rows, the rest as critters; or every session as a row. */}
       {!st.showArchived && (
         <div className="side-filter">
-          {([false, true] as const).map((v) => <button key={String(v)} className={st.sideAll === v ? 'on' : ''} onClick={() => { state.sideAll = v; changed() }}>{v ? 'All sessions' : 'Needs me'}</button>)}
+          {/* With people known apart, Mine: the sessions you wrote in, as rows. */}
+          {(st.me ? ['needs', 'mine', 'all'] as const : ['needs', 'all'] as const).map((v) => {
+            const on = st.me && st.sideMine ? v === 'mine' : st.sideAll ? v === 'all' : v === 'needs'
+            return <button key={v} className={on ? 'on' : ''} onClick={() => { state.sideMine = v === 'mine'; state.sideAll = v === 'all'; changed() }}>{v === 'all' ? 'All sessions' : v === 'mine' ? 'Mine' : 'Needs me'}</button>
+          })}
         </div>
       )}
       {/* The archived view: its banner, and a filter by folder that stays above the list. */}
@@ -274,6 +282,7 @@ export function Sidebar({ width }: { width: number }) {
       <div className="side-foot">
         <button className="link" title={st.web ? `Settings of ${currentMachine()}` : 'Settings'} onClick={() => setSettings(true)}><GearIcon size={14} /></button>
         <div className="side-foot-mid">
+          {st.billing === 'api' && st.billingNote && <span className="usage-fallback" data-tip={st.billingNote}>API</span>}
           {st.billing === 'api' && <ApiSpend sessions={st.sessions} open={() => setSettings('cost')} />}
           {st.billing !== 'api' && (u.fiveHour != null || u.sevenDay != null) && (
             <div className="usage" data-tip={limitsTip(u)} onClick={() => setSettings('cost')}>
@@ -288,10 +297,12 @@ export function Sidebar({ width }: { width: number }) {
           const running = st.tasks.filter((t) => !t.ended).length
           return <button className="link side-tasks" title={`Tasks: ${running} running`} onClick={() => setTasks(true)}><TerminalIcon size={14} />{running > 0 && <span>{running}</span>}</button>
         })()}
+        {st.settings.issues?.repo && <button className="link side-report" title="Report an issue with this app" onClick={() => setReport(true)} data-pid="report-button"><FlagIcon size={14} /></button>}
         {/* One toggle: pressed while the list shows archived sessions. */}
         <button className={`link archive-toggle${st.showArchived ? ' on' : ''}`} title={st.showArchived ? 'Show active sessions' : 'Show archived sessions'} onClick={() => showArchive(!st.showArchived)}><ArchiveIcon size={14} /></button>
       </div>
       </div>
+      {report && <ReportDialog onClose={() => setReport(false)} />}
       {newIn !== null && <NewSession cwd={newIn.cwd} machine={newIn.machine} group={newIn.group} onClose={() => setNewIn(null)} />}
       {history && <HistoryDialog onClose={() => setHistory(false)} />}
       {st.settingsPage && <SettingsDialog onClose={() => { state.settingsPage = null; changed() }} />}
@@ -526,7 +537,11 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
   // Archived: only the sessions whose folder has the text you typed, and by folder if you ask.
   const q = st.showArchived ? st.archiveQuery.trim().toLowerCase() : ''
   const byDir = st.showArchived && st.archiveByFolder
-  const shown = (m?.sessions ?? []).filter((s) => s.kind === 'worker' && s.archived === st.showArchived)
+  const mineOnly = !st.showArchived && st.sideMine && !!st.me
+  const all0 = (m?.sessions ?? []).filter((s) => s.kind === 'worker' && s.archived === st.showArchived && (!mineOnly || wroteIn(s, st.me)))
+  // Dropped for now: out of the groups, into the Overhang at the bottom (the archive shows them as it shows any).
+  const overhang = st.showArchived ? [] : all0.filter((s) => s.dropped).sort((a, b) => b.lastActivity - a.lastActivity)
+  const shown = st.showArchived ? all0 : all0.filter((s) => !s.dropped)
   const match = archiveMatch(q, shown.map((s) => ({ cwd: s.cwd, machine, title: s.title })))
   const workers = shown.filter((s) => match({ cwd: s.cwd, machine, title: s.title }))
   const tier = tiers(workers, (a, b) => byDir ? a.cwd === b.cwd : gid(a) === gid(b))
@@ -544,7 +559,7 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
     : [...groups, ...(loose.length ? [{ id: NONE, name: 'No group' }] : [])]
       .map((g) => ({ g, list: workers.filter((s) => gid(s) === g.id) }))
       .filter(({ list }) => list.length || !st.showArchived)
-  const all = st.sideAll || st.showArchived
+  const all = st.sideAll || st.showArchived || mineOnly
   const { start, sortable, over } = useDragSort((key, ids) => {
     if (!m) return
     if (key === `${machine}|groups`) {
@@ -567,7 +582,7 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
     { label: 'Rename', run: () => { naming = g.id; changed() } },
     { label: 'Delete group', run: () => saveGroups(machine, groups.filter((x) => x.id !== g.id)) },
   ])
-  if (!sections.length) return q && (m?.sessions ?? []).some((s) => s.kind === 'worker' && s.archived) ? <div className="muted pad">No folder or session matches “{st.archiveQuery.trim()}”.</div> : null
+  if (!sections.length && !overhang.length) return q && (m?.sessions ?? []).some((s) => s.kind === 'worker' && s.archived) ? <div className="muted pad">No folder or session matches “{st.archiveQuery.trim()}”.</div> : null
   const dropOn = (g: string) => over === g || (headOver?.machine === machine && headOver.group === g)
   return <div className="groups" data-machine={machine}>{sections.map(({ g, list }) => {
     const shutKey = `group:${machine}:${g.id}`
@@ -617,7 +632,8 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
                 <button key={s.id} {...d} className={`face${st.selected === s.id ? ' active' : ''}${alertOf(s) ? ' alert' : ''}${d.className}`}
                   data-tip={`${s.title}${parent ? ` (from ${parent.title})` : ''} · ${s.compacting ? 'compacting' : STATUS_LABEL[s.status]}`} data-tip-at="right" data-tip-touch
                   onClick={() => select(s.id)} onPointerDown={(e) => start(e, `${machine}|dock`, s.id, g.id, true)} onContextMenu={(e) => onMenu(e, rowItems(s))}>
-                  <Mascot status={s.status} look={s.look} fatigue={fatigue(s.context.used, s.context.window)} size={22} child={!!s.parentId} review={!!s.pendingReviews} starred={s.starred} />
+                  <SessionFace s={s} size={22} />
+                  <Others s={s} dot />
                   {/* The open one can be archived from here, as a row can. */}
                   {st.selected === s.id && !s.archived && (
                     <span className="face-close" role="button" aria-label="Archive session" onClick={(e) => { e.stopPropagation(); void closeSession(s.id) }}><XIcon size={9} /></span>
@@ -632,7 +648,28 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
     )
   })}
     {!st.showArchived && <div data-group="+" className={`new-group${dropOn('+') ? ' drop' : ''}`} role="button" onClick={() => newGroup(machine)}>+ New group</div>}
+    {overhang.length > 0 && <Overhang machine={machine} list={overhang} onMenu={onMenu} />}
   </div>
+}
+
+// The sessions you dropped for now: open loops you chose to let go of, not work that waits on
+// you. Shut until you open it; no badges, no counts in red. Its open state is kept as
+// `overhang:<machine>` in collapsed, so that it starts shut.
+function Overhang({ machine, list, onMenu }: { machine: string; list: SessionMeta[]; onMenu(e: React.MouseEvent, items: MenuItem[]): void }) {
+  const st = useStore()
+  const key = `overhang:${machine}`
+  const open = st.collapsed.includes(key)
+  const toggle = () => { state.collapsed = open ? state.collapsed.filter((n) => n !== key) : [...state.collapsed, key]; changed() }
+  return (
+    <div className={`group overhang${open ? '' : ' shut'}`} data-pid="overhang">
+      <div className="group-head fixed" onClick={toggle} title="Sessions you dropped for now. Pick one up when it feels alive again.">
+        <ChevronIcon size={11} className="group-chevron" />
+        <span className="group-name">Overhang</span>
+        <span className="group-count">{list.length}</span>
+      </div>
+      {open && list.map((s) => <Row key={s.id} s={s} active={st.selected === s.id} onMenu={onMenu} />)}
+    </div>
+  )
 }
 
 // A group's name as you type it: Enter or a click elsewhere keeps it, Escape does not.
@@ -650,16 +687,23 @@ const nameOf = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? pa
 
 // A row names its folder, not its status: the critter shows the status. In a folder section the head names the folder.
 function Row({ s, depth = 0, active, label, folder = true, onPointerDown, onMenu }: { s: SessionMeta; depth?: number; active: boolean; label?: string; folder?: boolean; onPointerDown?(e: React.PointerEvent): void; onMenu?(e: React.MouseEvent, items: MenuItem[]): void }) {
-  const parent = useStore().sessions.find((x) => x.id === s.parentId)
+  const { sessions } = useStore()
+  const parent = sessions.find((x) => x.id === s.parentId)
+  const asks = archiveAsksOf(sessions, s.id).length
   return (
     <button className={`row${active ? ' active' : ''}${s.unread ? ' unread' : ''}${alertOf(s) ? ' alert' : ''}${s.status === 'error' ? ' error' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} onClick={() => select(s.id)} onPointerDown={onPointerDown} onContextMenu={onMenu && ((e) => onMenu(e, rowItems(s)))}>
-      <Mascot status={s.status} look={s.look} fatigue={fatigue(s.context.used, s.context.window)} size={26} title={STATUS_LABEL[s.status]} child={!!s.parentId} review={!!s.pendingReviews} starred={s.starred} />
+      <SessionFace s={s} size={26} title={STATUS_LABEL[s.status]} />
       <span className="row-main">
         <span className="row-title">{machineOf(s.id) !== LOCAL && <GlobeIcon size={11} className="row-remote" title={`On ${machineOf(s.id)}`} />}{label ?? s.title}{parent && <span className="row-from"> (from {parent.title})</span>}</span>
         <span className="row-sub">{[s.compacting && 'compacting', folder && nameOf(s.cwd), timeAgo(s.lastActivity)].filter(Boolean).join(' · ')}<SpendHint s={s} /><CacheHint s={s} /></span>
       </span>
+      <Others s={s} />
       {!!s.pendingCritical && <span className="count critical" data-tip="Critical items" data-tip-at="right">{s.pendingCritical}</span>}
+      {asks > 0 && <span className="count held" data-tip="Asks to write to an archived session" data-tip-at="right">{asks}</span>}
       {s.inbox.length > 0 && <span className="count" title="Drafts from the lead">{s.inbox.length}</span>}
+      {s.kind === 'worker' && !s.archived && s.dropped && (
+        <span className="row-close row-pickup" role="button" title="Pick up again" onClick={(e) => { e.stopPropagation(); void api(`/api/sessions/${s.id}`, 'PATCH', { dropped: false }) }}>↩</span>
+      )}
       {s.kind === 'worker' && !s.archived && (
         <span className="row-close" role="button" title="Archive session" onClick={(e) => { e.stopPropagation(); void closeSession(s.id) }}><XIcon size={12} /></span>
       )}
@@ -679,7 +723,8 @@ function rowItems(s: SessionMeta): MenuItem[] {
   if (s.kind !== 'worker') return [read]
   const groups = groupsOf(machine).filter((g) => g.id !== s.group)
   const star: MenuItem = { label: s.starred ? 'Remove star' : 'Star', run: () => api(`/api/sessions/${s.id}`, 'PATCH', { starred: !s.starred }) }
-  return [read, star, 'line', { head: 'Move to' },
+  const drop: MenuItem[] = s.archived ? [] : [{ label: s.dropped ? 'Pick up again' : 'Drop for now', run: () => api(`/api/sessions/${s.id}`, 'PATCH', { dropped: !s.dropped }) }]
+  return [read, star, ...drop, ...(machine === LOCAL ? ['line' as const, ...iconItems(s)] : []), 'line', { head: 'Move to' },
     ...groups.map((g) => ({ label: g.name, run: () => moveToGroup(s, g.id) })),
     { label: 'New group', run: () => moveToGroup(s, newGroup(machine)) },
     ...(s.group && groupsOf(machine).some((g) => g.id === s.group) ? [{ label: 'No group', run: () => moveToGroup(s, NONE) }] : []),
@@ -738,9 +783,9 @@ function dollars(x: number): string {
 function limitsTip(u: Usage) {
   const line = (name: string, used: number | undefined, rate: number | undefined) => used == null ? '' : rate
     ? `The ${name} limit is about ${usd(1 / rate)} at API prices. You used ${Math.round(used * 100)}% (about ${usd(used / rate)}); about ${usd((1 - used) / rate)} is left.`
-    : `You used ${Math.round(used * 100)}% of your ${name} limit. Codinger does not know its dollar value yet.`
+    : `You used ${Math.round(used * 100)}% of your ${name} limit. workwith does not know its dollar value yet.`
   return [line('5-hour', u.fiveHour, u.rate?.fiveHour), line('weekly', u.sevenDay, u.rate?.sevenDay)].filter(Boolean).join('\n\n')
-    + `\n\nDollar values are estimates: Codinger compares Claude Code's spend at API prices with how far the percentages move (${u.rate?.pairs ?? 0} measurements). Click to see what your plan costs you.`
+    + `\n\nDollar values are estimates: workwith compares Claude Code's spend at API prices with how far the percentages move (${u.rate?.pairs ?? 0} measurements). Click to see what your plan costs you.`
 }
 
 // What the conversation has cost so far. Only a label: the session's own pill explains it.
@@ -758,6 +803,45 @@ function CacheHint({ s }: { s: SessionMeta }) {
   if (c.blocked) return <span className="cache-hint cold" title="Prompt cache expired. The next message re-caches the whole context"> · cache expired</span>
   if (!c.cold && c.left < (c.ttl >= 3_600_000 ? 10 : 2) * 60_000) return <span className="cache-hint soon" title="Prompt cache expires soon"> · cache {minutes(c.left)}</span>
   return null
+}
+
+// With people known apart (a proxy's sign-in or typed names): you wrote in the session.
+const wroteIn = (s: SessionMeta, me: Person | null) => !!me && !!s.writers?.[me.login]
+// Someone who wrote in the last 15 minutes was in the session recently.
+const RECENT = 15 * 60_000
+
+// The others in a session, as badges after a row's title, and one small badge on a critter in the
+// dock. Bright with a green ring: in it now (its page open in view, or writing; writing pulses).
+// Bright: wrote in the last 15 minutes. Faint: wrote earlier. Alone, or with people not known apart,
+// nothing shows.
+function Others({ s, dot }: { s: SessionMeta; dot?: boolean }) {
+  const { me, viewing, people } = useStore()
+  const now = useNow(60_000)
+  if (!me) return null
+  const sid = machineOf(s.id) === LOCAL ? s.id : null
+  const looking = new Set(Object.entries(viewing).filter(([login, ids]) => login !== me.login && sid && ids.includes(sid)).map(([login]) => login))
+  const live = new Set((s.live ?? []).filter((l) => l.id !== me.login && l.parts.length).map((l) => l.id))
+  const by = new Map<string, { p: Person; last: number }>()
+  for (const [login, w] of Object.entries(s.writers ?? {})) if (login !== me.login) by.set(login, { p: { login, name: w.name, ...(w.guest ? { guest: true } : {}) }, last: w.last })
+  for (const l of s.live ?? []) if (live.has(l.id) && l.by && !by.has(l.id)) by.set(l.id, { p: l.by, last: 0 })
+  for (const login of looking) { const p = people.find((x) => x.login === login); if (p && !by.has(login)) by.set(login, { p, last: 0 }) }
+  const list = [...by.values()].map((x) => {
+    const writing = live.has(x.p.login)
+    const active = writing || looking.has(x.p.login)
+    return { ...x, writing, active, recent: !active && now - x.last < RECENT }
+  }).sort((a, b) => +b.active - +a.active || b.last - a.last)
+  if (dot) {
+    const x = list.find((y) => y.active || y.recent)
+    return x ? <span className={`face-who${x.active ? ' active' : ''}${x.writing ? ' live' : ''}`}><Who p={x.p} size={11} /></span> : null
+  }
+  if (!list.length) return null
+  const tip = (x: typeof list[number]) => `${x.p.name}: ${[x.writing ? 'writing now' : x.active ? 'here now' : '', x.last ? `wrote ${timeAgo(x.last)}` : ''].filter(Boolean).join(', ')}`
+  return (
+    <span className="row-people" data-tip={list.map(tip).join('\n')} data-tip-at="right">
+      {list.slice(0, 3).map((x) => <span key={x.p.login} className={`row-person${x.active ? ' active' : x.recent ? ' recent' : ''}${x.writing ? ' live' : ''}`}><Who p={x.p} size={15} /></span>)}
+      {list.length > 3 && <span className="row-people-more">+{list.length - 3}</span>}
+    </span>
+  )
 }
 
 // Who has the page open now, when Codinger knows people apart (a proxy's sign-in or names

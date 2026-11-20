@@ -1,21 +1,22 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { Anchor, Block, Event, ImageRef, Part, Task } from '../../../shared/types.ts'
-import { addDraft, agentName, api, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
+import { addDraft, agentName, api, closeSession, draftsOf, media, removeDraft, rewind, select, state, uid, useStore, here } from '../store.ts'
 import { mediaKind } from '../../../shared/media.ts'
 import { anchorFromRange, passageQuote, setHighlights } from '../anchoring.ts'
-import { holdKeyboard, renderInline, renderMd, renderText } from '../util.ts'
+import { clockTime, fullTime, holdKeyboard, renderInline, renderMd, renderText } from '../util.ts'
 import { AssistantMessage, type Reaction } from './AssistantMessage.tsx'
 import { focusField, RichInput, Thumbs } from './Inputs.tsx'
 import { foldItems, revealItem, trackItems, type TrackedItem } from '../items.ts'
 import { itemsOf } from '../../../shared/blocks.ts'
+import { gapText, lastSaid } from '../../../shared/gap.ts'
 import { isReaction } from '../emoji.ts'
 import { ARTIFACT_QUOTE_WORDS, splitQuote } from '../../../shared/asks.ts'
 import { highlight, langOfPath } from '../highlight.ts'
 import { CARD_W, GUTTER_GAP, Margin, focusPassage, rangesOfNote } from './Margin.tsx'
 import { StateMark, TasksDialog, lastDraw, stateLabel } from './TasksDialog.tsx'
 import { minutes } from '../cache.ts'
-import { AgentsIcon, MailIcon, BlockIcon, CheckIcon, ChevronIcon, DashIcon, XIcon, FileIcon, GlobeIcon, ListIcon, PencilIcon, SearchIcon, OpenIcon, TerminalIcon, TimerIcon, ToolIcon, TrashIcon } from './Icons.tsx'
+import { AgentsIcon, MailIcon, BlockIcon, CheckIcon, ChevronIcon, CopyIcon, DashIcon, XIcon, FileIcon, GlobeIcon, ListIcon, PencilIcon, SearchIcon, OpenIcon, TerminalIcon, TimerIcon, ToolIcon, TrashIcon } from './Icons.tsx'
 import { shortPath } from './DirPicker.tsx'
 import { ArtifactIcon, ArtifactLine, SHOW_ARTIFACT, showArtifactIn } from './Artifacts.tsx'
 import { revealArtifactNote } from './ArtifactNotes.tsx'
@@ -79,6 +80,12 @@ export function Transcript({ sid }: { sid: string }) {
   const drafted = draftsOf(sid).flatMap((d) => d.kind === 'note' ? [d.anchor.msg] : []).sort().join(' ')
   const steps = useMemo(() => st.showSteps ? new Set<string>() : interim(events ?? [], base, new Set(drafted.split(' '))), [events, base, drafted, st.showSteps])
   const groups = useMemo(() => group(events ?? [], base, steps), [events, base, steps])
+  // "3 hours later" above a message sent after a long quiet (shared/gap.ts).
+  const gaps = useMemo(() => new Map((events ?? []).flatMap((e, i) => {
+    const last = e.t === 'user' ? lastSaid(events!, i) : null
+    const t = last == null ? null : gapText(e.ts - last)
+    return t ? [[e.seq, t] as const] : []
+  })), [events])
   const scroller = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const column = useRef<HTMLDivElement>(null)
@@ -324,10 +331,16 @@ export function Transcript({ sid }: { sid: string }) {
       <div className={`transcript-inner${gutter ? ' gutter' : ''}`} ref={inner}>
         <div className="column" ref={column}>
           {groups.map((g, i) => g.kind === 'one'
-            ? <ItemView key={g.item.key} sid={sid} item={g.item} f={folded} />
+            ? <Fragment key={g.item.key}>
+                {gaps.has(g.item.e.seq) && <div className="time-gap" title={new Date(g.item.e.ts).toLocaleString()}>{gaps.get(g.item.e.seq)}</div>}
+                <ItemView sid={sid} item={g.item} f={folded} />
+              </Fragment>
             : <Activity key={g.items[0].key} sid={sid} items={g.items} f={folded} live={i === groups.length - 1 && meta?.status === 'working'} />)}
           {streaming && <AssistantMessage sid={sid} msg="live" text={streaming} live />}
           {meta?.status === 'working' && !streaming && <WorkingDots />}
+          {/* The agent said the task is done (<task-done/>): a big button under its last message archives the session. */}
+          {!st.share && meta?.taskDone && meta.kind === 'worker' && !meta.archived && meta.status !== 'working' && meta.status !== 'permission' &&
+            <button className="archive-done" onClick={() => void closeSession(sid)}><CheckIcon size={18} /> Click to archive this session</button>}
         </div>
         {!st.share && <Margin sid={sid} inner={inner} column={column} gutter={gutter} events={events} />}
       </div>
@@ -471,12 +484,14 @@ function group(events: Event[], f: Folded, steps: Set<string>): Group[] {
 
 function ItemView({ sid, item, f }: { sid: string; item: Item; f: Folded }) {
   const { e, block } = item
-  if (block && e.t === 'assistant') return <BlockView sid={sid} b={block} msg={item.key} f={f} synthetic={e.synthetic} />
+  if (block && e.t === 'assistant') return <BlockView sid={sid} b={block} msg={item.key} f={f} synthetic={e.synthetic} ts={e.ts} />
   switch (e.t) {
     case 'user': return <UserTurn sid={sid} e={e} />
     case 'permission': return <PermissionCard sid={sid} e={e} resolution={f.resolved.get(e.requestId)} />
-    case 'notice': return <div className={`notice ${e.level}`}>{e.text.length > 600 ? <details><summary>{e.text.split('\n')[0].slice(0, 120)}</summary><pre>{e.text}</pre></details> : e.text}</div>
-    case 'result': return e.isError ? <div className="notice error">{e.text ?? 'The turn ended with an error.'}</div> : <div className="turn-end" title={`${(e.durationMs / 1000).toFixed(1)}s`} />
+    case 'notice': return <div className={`notice ${e.level}`} title={fullTime(e.ts)}>{e.text.length > 600 ? <details><summary>{e.text.split('\n')[0].slice(0, 120)}</summary><pre>{e.text}</pre></details> : e.text}</div>
+    // Where the turn hands back to you: a line with the time it ended.
+    case 'result': return e.isError ? <div className="notice error" title={fullTime(e.ts)}>{e.text ?? 'The turn ended with an error.'}</div>
+      : <div className="turn-end" title={`${fullTime(e.ts)} · the turn took ${duration(e.durationMs)}`}><MsgTime ts={e.ts} /></div>
     default: return null
   }
 }
@@ -514,7 +529,7 @@ function viaCodinger(e: Extract<Event, { t: 'user' }>, tasks: Task[]): string {
   const ids = taskIdsOf(e)
   const t = tasks.find((x) => ids.has(x.id))
   return t?.notify === 'interrupt' ? 'The agent asked to be interrupted with a message when this task ended.'
-    : t?.notify === 'next' ? 'Codinger told the agent with a message when this task ended.'
+    : t?.notify === 'next' ? 'workwith told the agent with a message when this task ended.'
     : 'The agent asked to be told with a message when this task ended.'
 }
 
@@ -588,10 +603,17 @@ function TaskFoot({ note, onOpen }: { note?: string; onOpen?(): void }) {
   )
 }
 
-function BlockView({ sid, b, msg, f, synthetic }: { sid: string; b: Block; msg: string; f: Folded; synthetic?: boolean }) {
+function BlockView({ sid, b, msg, f, synthetic, ts }: { sid: string; b: Block; msg: string; f: Folded; synthetic?: boolean; ts?: number }) {
   if (b.type === 'text') {
     if (synthetic) return <div className="notice info md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} />
-    return <AssistantMessage sid={sid} msg={msg} text={b.text} items={f.items} sent={f.sent.get(msg) ?? []} reacts={f.reacts.get(msg)} />
+    // The time and the copy button sit under the text, out of it, so they take no part in comments on the text.
+    return <>
+      <AssistantMessage sid={sid} msg={msg} text={b.text} items={f.items} sent={f.sent.get(msg) ?? []} reacts={f.reacts.get(msg)} />
+      <div className="agent-actions">
+        {ts != null && <MsgTime ts={ts} />}
+        <CopyMarkdown text={b.text} />
+      </div>
+    </>
   }
   if (b.type === 'thinking') return <details className="thinking" open><summary>Thinking</summary><div className="md" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} /></details>
   const perm = f.permOf.get(b.id)
@@ -647,6 +669,7 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
       <button className="tool-line activity-line" onClick={() => setOpen(!open)}>
         <span className="tool-icon"><ChevronIcon size={12} className="chevron" /></span>
         <span className="activity-sum">{tally(items, f)}</span>
+        <MsgTime ts={items[0].e.ts} className="hover" title={`${fullTime(items[0].e.ts)} to ${clockTime(last.e.ts)}`} />
       </button>
       {open
         ? <div className="activity-items">{items.map((it) => <ItemView key={it.key} sid={sid} item={it} f={f} />)}</div>
@@ -654,6 +677,25 @@ function Activity({ sid, items, f, live }: { sid: string; items: Item[]; f: Fold
     </div>
   )
 }
+
+// When a message was sent, small and grey: on hover, or always on a touch screen for your messages (styles.css).
+function MsgTime({ ts, className, title }: { ts: number; className?: string; title?: string }) {
+  return <time className={`msg-time${className ? ` ${className}` : ''}`} dateTime={new Date(ts).toISOString()} title={title ?? fullTime(ts)}>{clockTime(ts)}</time>
+}
+// Copies a message as its markdown source, as the agent wrote it or as you sent it.
+function CopyMarkdown({ text }: { text: string }) {
+  const [done, setDone] = useState(false)
+  const t = useRef(0)
+  useEffect(() => () => clearTimeout(t.current), [])
+  const copy = () => void navigator.clipboard.writeText(text).then(() => {
+    setDone(true)
+    clearTimeout(t.current)
+    t.current = window.setTimeout(() => setDone(false), 1200)
+  })
+  return <button className={`icon-btn copy-md${done ? ' on' : ''}`} title={done ? 'Copied' : 'Copy as markdown'} onClick={copy}>{done ? <CheckIcon size={13} /> : <CopyIcon size={13} />}</button>
+}
+
+const duration = (ms: number) => ms < 60_000 ? `${Math.round(ms / 1000)}s` : ms < 3_600_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`
 
 function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> }) {
   const [editing, setEditing] = useState(false)
@@ -728,12 +770,16 @@ function UserTurn({ sid, e }: { sid: string; e: Extract<Event, { t: 'user' }> })
       </div></div>
       {long && <button className="link user-more" onClick={() => setMore(!more)}>{more ? 'Show less' : 'Show more'}</button>}
     </div>
-      {!state.share && <div className="user-actions">
-        <button className="icon-btn" title="Edit" disabled={busy} onClick={() => setEditing(true)}><PencilIcon size={13} /></button>
-        {confirm
-          ? <button className="link danger" disabled={busy} onClick={() => run(() => rewind(sid, e.seq))}>Delete from here</button>
-          : <button className="icon-btn" title="Delete from here" disabled={busy} onClick={() => setConfirm(true)}><TrashIcon size={13} /></button>}
-      </div>}
+      <div className="user-actions">
+        <MsgTime ts={e.ts} />
+        <CopyMarkdown text={e.parts.filter(plain).map((p) => p.text.trim()).filter(Boolean).join('\n\n')} />
+        {!state.share && <>
+          <button className="icon-btn" title="Edit" disabled={busy} onClick={() => setEditing(true)}><PencilIcon size={13} /></button>
+          {confirm
+            ? <button className="link danger" disabled={busy} onClick={() => run(() => rewind(sid, e.seq))}>Delete from here</button>
+            : <button className="icon-btn" title="Delete from here" disabled={busy} onClick={() => setConfirm(true)}><TrashIcon size={13} /></button>}
+        </>}
+      </div>
     </div>
   )
 }
@@ -744,11 +790,12 @@ function repliesSummary(parts: Part[]): string {
   const comments = n('note') + n('artifact') - reactions.length
   const done = parts.reduce((s, p) => s + (p.kind === 'done' ? p.items.length : 0), 0)
   const dismissed = parts.reduce((s, p) => s + (p.kind === 'dismiss' ? p.items.length : 0), 0)
+  const checks = parts.reduce((s, p) => s + (p.kind === 'check' ? p.items.length : 0), 0)
   const verdicts = parts.reduce((s, p) => s + (p.kind === 'review' ? p.files.length : 0), 0)
   const lines = parts.reduce((s, p) => s + (p.kind === 'review' ? p.comments.length : 0), 0)
   const out: string[] = []
   const add = (k: number, one: string, many: string) => { if (k) out.push(`${k} ${k === 1 ? one : many}`) }
-  add(verdicts, 'verdict', 'verdicts'); add(comments + lines, 'comment', 'comments'); add(reactions.length, 'reaction', 'reactions'); add(n('answer'), 'answer', 'answers'); add(done, 'done', 'done'); add(dismissed, 'dismissed', 'dismissed')
+  add(verdicts, 'verdict', 'verdicts'); add(comments + lines, 'comment', 'comments'); add(reactions.length, 'reaction', 'reactions'); add(n('answer'), 'answer', 'answers'); add(done, 'done', 'done'); add(checks, 'tick', 'ticks'); add(dismissed, 'dismissed', 'dismissed')
   return out.join(', ')
 }
 
@@ -785,7 +832,8 @@ function MailHead({ p }: { p: Extract<Part, { kind: 'mail' }> }) {
   return (
     <div className="mail-head">
       <MailIcon size={12} />
-      {p.idle ? <span>{who} ended its turn and is idle</span>
+      {p.decided ? <span>Your answer about a message to {who}</span>
+        : p.idle ? <span>{who} ended its turn and is idle</span>
         : <span>{p.replyTo ? 'Reply from' : 'From'} {who}{p.relation && <span className="muted"> ({p.relation === 'parent' ? 'its parent' : 'its child'})</span>}{p.endTurn && <span className="muted"> · then ended its turn</span>}</span>}
       {p.replyTo && <div className="sent-quote mail-quote">{p.replyTo.text}</div>}
     </div>
@@ -800,6 +848,9 @@ function PartHead({ p, sid }: { p: Part; sid?: string }) {
     {p.kind === 'artifact' && p.quote.trim() && <SentQuote quote={p.quote} words={ARTIFACT_QUOTE_WORDS} />}
     {p.kind === 'dismiss' && <div className="sent-dismiss"><XIcon size={11} /> {p.items.map((i) => i.label).join(' · ')}</div>}
     {p.kind === 'review' && <SentReview p={p} sid={sid} />}
+    {p.kind === 'check' && ([true, false] as const).map((on) => p.items.some((i) => i.checked === on) && (
+      <div key={String(on)} className={`sent-dismiss sent-check${on ? ' on' : ''}`}><span className="sent-box">{on ? '☑' : '☐'}</span> {p.items.filter((i) => i.checked === on).map((i) => i.label).join(' · ')}</div>
+    ))}
     {p.kind === 'done' && <div className="sent-dismiss sent-done"><CheckIcon size={11} /> {p.items.map((i) => i.text ? `${i.label} (${i.text})` : i.label).join(' · ')}</div>}
     {p.kind === 'answer' && <div className="answer-q" dangerouslySetInnerHTML={{ __html: renderInline(p.question.split('\n')[0]) }} />}
     {p.kind === 'answer' && p.choices?.length ? <div className="answer-choices">{p.choices.join('; ')}</div> : null}
@@ -813,6 +864,9 @@ function SentReview({ p, sid }: { p: Extract<Part, { kind: 'review' }>; sid?: st
   return <>
     {(['approve', 'reject'] as const).map((v) => files(v).length > 0 && (
       <div key={v} className={`sent-dismiss sent-verdict ${v}`}>{v === 'approve' ? <CheckIcon size={11} /> : <XIcon size={11} />} {files(v).map((f) => baseName(f.rel)).join(' · ')}</div>
+    ))}
+    {p.files.filter((f) => !f.path && f.text?.trim()).map((f, i) => (
+      <div key={`n${i}`} className="sent-line">{f.verdict && <span className={`rv-word ${f.verdict}`}>{f.verdict === 'approve' ? 'go' : 'no go'}</span>} {f.text}</div>
     ))}
     {p.comments.map((c, i) => (
       <div key={i} className={`sent-line ${c.verdict}`}>
@@ -830,7 +884,7 @@ function UserEdit({ sid, e, onDone }: { sid: string; e: Extract<Event, { t: 'use
   const [parts, setParts] = useState<Part[]>(() => e.parts.some((p) => p.kind === 'text') ? e.parts : [...e.parts, { kind: 'text', text: '' }])
   const [busy, setBusy] = useState(false)
   const set = (i: number, patch: { text?: string; images?: ImageRef[] }) => setParts((ps) => ps.map((p, j) => j === i ? { ...p, ...patch } as Part : p))
-  const kept = parts.filter((p) => p.kind === 'dismiss' || p.kind === 'done' || p.kind === 'review' || p.text.trim() || p.images?.length || (p.kind === 'answer' && p.choices?.length))
+  const kept = parts.filter((p) => p.kind === 'dismiss' || p.kind === 'done' || p.kind === 'check' || p.kind === 'review' || p.text.trim() || p.images?.length || (p.kind === 'answer' && p.choices?.length))
   const submit = async () => {
     if (!kept.length || busy) return
     setBusy(true)
@@ -841,7 +895,7 @@ function UserEdit({ sid, e, onDone }: { sid: string; e: Extract<Event, { t: 'use
       {parts.map((p, i) => (
         <div key={i} className={`user-part ${p.kind}`}>
           <PartHead p={p} sid={sid} />
-          {p.kind !== 'dismiss' && p.kind !== 'done' && p.kind !== 'review' && (
+          {p.kind !== 'dismiss' && p.kind !== 'done' && p.kind !== 'check' && p.kind !== 'review' && (
             <RichInput value={p.text} onChange={(text) => set(i, { text })} images={p.images ?? []} onImages={(images) => set(i, { images })}
               placeholder={p.kind === 'note' ? 'Comment' : p.kind === 'answer' ? 'Answer' : `Message ${agentName()}`}
               autoFocus={i === parts.length - 1} minRows={1} onSubmit={submit} onEscape={onDone} />

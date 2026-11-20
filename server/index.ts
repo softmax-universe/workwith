@@ -11,49 +11,57 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
+import type { ClientMsg, InboxItem, Part, Person, PermissionMode, ServerMsg, SessionMeta, Settings, Usage } from '../shared/types.ts'
 import { criticalUnanswered, inboxLabel, inboxParts, openItemsOf } from '../shared/inbox.ts'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import os from 'node:os'
 import { Session, pushBody, slashCommand, type Hooks, type Launch, type SlashCommand } from './session.ts'
 import { Proc } from './proc.ts'
-import { findHistory, importTranscript, lastCache, listDirs, listHistory } from './history.ts'
-import { LEAD_PROMPT, WORKER_PROMPT, lookPrompt, workerNotesPrompt } from './prompts.ts'
+import { findHistory, importTranscript, lastCache, listDirs, listHistory, moveTranscript } from './history.ts'
+import { LEAD_PROMPT, WORKER_PROMPT, issuesPrompt, lookPrompt, remotePrompt, workerNotesPrompt } from './prompts.ts'
 import { LOOK_OPTIONS, LOOK_SLOTS, cleanLook, describeLook } from '../shared/looks.ts'
 import { cleanAppearance } from '../shared/appearance.ts'
+import { bumpEmoji, cleanEmojiUse } from '../shared/emoji.ts'
 import * as meter from './meter.ts'
 import * as costs from './costs.ts'
 import * as usageLedger from './usage.ts'
 import { notesDir, notesNow, notesPath, readNotes, resumeKeepWarm, startNotes } from './notes.ts'
 import { notesFile } from '../shared/notes.ts'
 import { flagProblem } from '../shared/flags.ts'
+import { autoTitle } from './describe.ts'
+import { canShare, sharePort, startPortShares } from './ports.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
 import { agentStatus, agentStatusPrompt, agentStatusText } from './agentstatus.ts'
-import { agentInfo, agentPage, ASK_NAME, BASE, billing, desk, personOf, serveAgent } from './agent.ts'
+import { firstEmoji, iconFile, iconOf, iconType } from './projecticons.ts'
+import { canRead, guardedMessage, readable } from './guarded.ts'
+import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
 import { pageUnder, underBase } from './base.ts'
 import { DEFAULT_CACHE_GUARD, cacheLeft, knownTtl } from '../shared/cache.ts'
 import { AGENTS_FILE, agentsPrompt, readAgentsMd, writeAgentsMd } from './agentsmd.ts'
 import { handleMcp, type Tool } from './mcp.ts'
 import { spendSince, spendText } from './spend.ts'
 import { backfillSubagentSpend } from './subspend.ts'
-import { ESTIMATE_TOOLS, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
-import { answered, askTools, forgetAsks, startAsks } from './asks.ts'
+import { ESTIMATE_TOOLS, backfillActive, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
+import { answered, askTools, asksReply, cancelAsk, forgetAsks, startAsks } from './asks.ts'
+import { forgetIcon, setIcon } from './icons.ts'
+import { fileIssue, issuesOf, startLoop } from './loop.ts'
 import { MAIL_TOOLS, flushMail, mailTools, release, startMail, stepped, takeMail, turnEnded, userWrote } from './mail.ts'
 import { AUTOPILOT_MODES, amount, nudge, startAutopilot, usedOf, verdict } from './autopilot.ts'
 import { blame, initFileHistory, moveHistory, noteEdit, record as recordVersion, versions } from './filehistory.ts'
 import { claim, refresh, toolEnded, toolStarted, whoChanged } from './changes.ts'
 import { CLAUDE, authState, cancelLogin, childEnv, initAuth, needed as authNeeded, startLogin, submitCode } from './auth.ts'
+import { FALLBACK, billingNote, limitHit, noLogin, onBilling, onPlan, sessionEnv } from './billing.ts'
 import { deviceType, findDevice } from './device.ts'
 import { remoteCancelLink, remoteForget, remoteHub, remoteLink, remoteName, remoteOn, remoteNotify, remoteProxy, remoteStatus, remoteUpgrade, startRemote } from './remote.ts'
-import { startUpdates, updateModeChanged, updateNow, updatePrompt, updateStatus } from './update.ts'
+import { changelog, startUpdates, updateModeChanged, updateNow, updatePrompt, updatesManaged, updateStatus } from './update.ts'
 import {
   DATA, LEAD_DIR, LEAD_NOTES, OLD_LEAD_NOTES, appendEvent, deleteEvents, readEvents, expandHome, imageFile, knownWindow, leadRenamed, resolveModel, loadSessions, promptFile, loadSettings, saveImage, saveSessions, saveSettings,
 } from './store.ts'
 import { embedOf, mediaKind, mediaType } from '../shared/media.ts'
 import { MEDIA_MAX, MEDIA_PART, keepMedia, mediaFile } from './media.ts'
-import { allowed, committedAt, diffOf, findFiles, isSecret, isText, listDir, uncommitted } from './files.ts'
+import { allowed, committedAt, diffOf, findFiles, isSecret, isText, listDir, locate, uncommitted } from './files.ts'
 import { ARTIFACTS, artifactsChanged, artifactsPrompt, checkArtifact, forgetPublish, listArtifacts, noteTool, reportOf, setVisibility, showArtifact, startPublish, startHost, typeOf, watchArtifacts } from './artifacts.ts'
 import { connectCallback, connectUrl, disconnect as prolificaDisconnect, prolificaState } from './prolifica.ts'
 import { buildShare, publishShare, unpublishShare } from './share.ts'
@@ -86,6 +94,13 @@ const sockets = new Set<WebSocket>()
 // Who is behind each open page, for the list of who is here (null: Codinger can't tell).
 const present = new Map<WebSocket, Person | null>()
 const people = (): Person[] => [...new Map([...present.values()].flatMap((p) => p ? [[p.login, p] as const] : [])).values()]
+// The session each page shows while it is in view, so the sidebar can show who is in a session now.
+const viewing = new Map<WebSocket, string>()
+function peopleMsg(): ServerMsg {
+  const by: Record<string, string[]> = {}
+  for (const [ws, sid] of viewing) { const p = present.get(ws); if (p && !(by[p.login] ??= []).includes(sid)) by[p.login].push(sid) }
+  return { type: 'people', people: people(), viewing: by }
+}
 // Slash commands differ by directory (project skills), so keep each session's
 // list, and the last one seen for sessions that haven't started yet.
 const COMMANDS_FILE = path.join(DATA, 'commands.json')
@@ -165,6 +180,15 @@ function runWindows(sid: string, cwd: string, cmd: string): string {
 let lastCommands: SlashCommand[] = (() => { try { return JSON.parse(fs.readFileSync(COMMANDS_FILE, 'utf8')) } catch { return [] } })()
 
 const metas = () => [...sessions.values()].map((s) => s.meta)
+// CODINGER_HISTORY=own: the Claude Code history this desk offers (recent folders, conversations to
+// resume) is only its own sessions', for a second desk that shares a user (deploy/mac/README.md).
+const OWN_HISTORY = desk('HISTORY') === 'own'
+const history = () => {
+  const items = listHistory()
+  if (!OWN_HISTORY) return items
+  const mine = new Set(metas().map((m) => m.claudeSessionId))
+  return items.filter((h) => mine.has(h.id))
+}
 
 // The sessions that edited a file since its last commit (or, for a file git does not have, in the
 // last 14 days), with those edits: the Changes view tells by them which session wrote which line
@@ -214,9 +238,12 @@ function notifyOnChange(s: Session) {
   const was = lastStatus.get(m.id)
   lastStatus.set(m.id, m.status)
   const status = m.status
-  if (m.kind !== 'worker' || was !== 'working' || !NOTIFY[status]) return
+  // A session you dropped for now finishes quietly.
+  if (m.kind !== 'worker' || m.dropped || was !== 'working' || !NOTIFY[status]) return
   setTimeout(() => {
     if (m.status !== status) return
+    // A page that shows the session marked the turn seen: 'asking' stays while asks are open.
+    if (status !== 'permission' && !m.unread) return
     remoteNotify({ title: m.title, body: pushBody(s.getEvents(), status) ?? NOTIFY[status], session: m.id })
   }, 2000).unref()
 }
@@ -228,7 +255,7 @@ const hooks: Hooks = {
     metaChanged()
     if (event.t === 'assistant') stepped(s, event.blocks.flatMap((b) => b.type === 'tool_use' ? [b.name] : []))
     if (event.t === 'assistant') for (const b of event.blocks) if (b.type === 'tool_use') toolStarted(s.meta.cwd, b.id, b.name, event.ts)
-    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s) })
+    if (event.t === 'result') setImmediate(() => { autoSend(s); flushMail(s); taskTurn(s); autopilotTurn(s, event.isError); turnEnded(s); autoTitle(s, metaChanged) })
     // A tool call that finished may have changed a tracked file: record it with this message.
     if (event.t === 'tool_result') {
       const ev = s.getEvents()
@@ -245,7 +272,12 @@ const hooks: Hooks = {
     }
   },
   delta: (s, text, reset) => broadcast({ type: 'delta', sessionId: s.meta.id, text, reset }),
-  authFailed: () => authNeeded(),
+  authFailed: (s) => {
+    // With a provider to fall back on, the message goes again there while someone signs in.
+    if (FALLBACK && onPlan()) { noLogin(); setTimeout(() => s.retryAfterSignIn((p) => hiddenFor(s, p)), 1000) }
+    authNeeded()
+  },
+  limitHit: (s, resetsAt) => { limitHit(resetsAt); setTimeout(() => s.retryAfterSignIn((p) => hiddenFor(s, p)), 500) },
   truncate: (s, seq) => { broadcast({ type: 'truncate', sessionId: s.meta.id, seq }); metaChanged() },
   usage: (u) => { meter.limit(u); costs.limit(u); usage = { ...u, rate: meter.rate() }; broadcast({ type: 'usage', usage }) },
   commands: (s, list) => {
@@ -271,12 +303,13 @@ function launchFor(meta: SessionMeta): () => Launch {
         '--mcp-config', JSON.stringify({ mcpServers: { codinger: { type: 'http', url: `http://127.0.0.1:${PORT}/mcp/${MCP_TOKEN}/look/${meta.id}` } } }),
         // Started with your MCP servers off: only Codinger's, until one is turned on (server/mcpservers.ts).
         ...(meta.mcp ? ['--strict-mcp-config'] : []),
-        '--allowedTools', `mcp__codinger__set_look,mcp__codinger__set_title,mcp__codinger__claim_changes,mcp__codinger__start_task,mcp__codinger__stop_task,mcp__codinger__list_tasks,mcp__codinger__show_artifact,mcp__codinger__show_file,${MAIL_TOOLS.map((t) => `mcp__codinger__${t}`).join(',')}${settings.estimates !== false ? ESTIMATE_TOOLS.map((t) => `,mcp__codinger__${t}`).join('') : ''}${meta.mcp && settings.mcpClaude !== false ? ',mcp__codinger__use_mcp_server' : ''}`,
-        ...(NO_SHELL ? ['--disallowedTools', 'Bash,mcp__codinger__start_task'] : []),
+        '--allowedTools', `mcp__codinger__set_look,mcp__codinger__set_title,mcp__codinger__claim_changes,mcp__codinger__start_task,mcp__codinger__stop_task,mcp__codinger__list_tasks,mcp__codinger__show_artifact,mcp__codinger__show_file,mcp__codinger__file_issue,${MAIL_TOOLS.map((t) => `mcp__codinger__${t}`).join(',')}${settings.estimates !== false ? ESTIMATE_TOOLS.map((t) => `,mcp__codinger__${t}`).join('') : ''}${meta.mcp && settings.mcpClaude !== false ? ',mcp__codinger__use_mcp_server' : ''}`,
+        // Agents ask with <ask> cards. The permission card cannot send answers to this tool, so an Allow would give the agent no answer.
+        '--disallowedTools', NO_SHELL ? 'AskUserQuestion,Bash,mcp__codinger__start_task' : 'AskUserQuestion',
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + agentStatusPrompt() + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + agentStatusPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + (settings.issues?.repo ? issuesPrompt() : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -357,7 +390,7 @@ function resumeCut(s: Session) {
 }
 startNotes({ sessions: () => sessions.values(), settings: () => settings, usage: () => usage, changed: metaChanged })
 startTasks({ changed: (tasks) => broadcast({ type: 'tasks', tasks }), ended: taskEnded })
-startMail({ sessions, create: createSession, hidden: hiddenFor, changed: metaChanged })
+startMail({ sessions, create: createSession, hidden: hiddenFor, changed: metaChanged, push: remoteNotify })
 startAsks({
   session: (id) => { const s = sessions.get(id); return s && s.meta.kind === 'worker' ? { title: s.meta.title } : undefined },
   push: remoteNotify,
@@ -366,6 +399,26 @@ startAsks({
 // Autopilot goes on in sessions the last server left between turns (a handed-on busy one
 // gets there when its turn ends).
 setTimeout(() => { for (const s of sessions.values()) autopilotTurn(s, false, true) }, 3000)
+// The improvement loop (server/loop.ts): its workers are sessions on autopilot.
+startLoop({
+  settings: () => settings,
+  desk: agentInfo()?.name ?? os.hostname().replace(/\.local$/, ''),
+  start: (o) => {
+    const s = createSession({ cwd: o.cwd, title: o.title, permissionMode: 'auto' })
+    const ap = s.meta.autopilot = startAutopilot(s.meta, { goal: o.goal, unit: 'usd', budget: o.usd }, usage)
+    s.send([{ kind: 'text', text: o.prompt }], { from: 'codinger', hidden: nudge(ap).hidden })
+    ap.turns++
+    metaChanged()
+    return s.meta.id
+  },
+  ended: (id) => {
+    const s = sessions.get(id)
+    if (!s) return 'the session is gone'
+    if (busy(s)) return null
+    return s.meta.autopilot?.ended?.reason ?? (s.meta.autopilot ? null : 'it has no autopilot')
+  },
+  archive: (id) => { const s = sessions.get(id); if (s && !busy(s)) { s.meta.archived = true; metaChanged() } },
+})
 
 function get(id: string): Session {
   const s = sessions.get(id)
@@ -373,7 +426,7 @@ function get(id: string): Session {
   return s
 }
 
-function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; mcp?: string[] }): Session {
+function createSession(o: { cwd: string; title?: string; model?: string | null; permissionMode?: PermissionMode; flags?: string[]; parentId?: string | null; group?: string | null; mkdir?: boolean; gitInit?: boolean; mcp?: string[] }): Session {
   const flags = Array.isArray(o.flags) ? o.flags.map((f) => String(f).trim()).filter(Boolean) : []
   for (const f of flags) { const p = flagProblem(f); if (p) throw new HttpError(400, p) }
   const cwd = path.resolve(expandHome(String(o.cwd ?? '').trim()))
@@ -381,10 +434,14 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
     try { fs.mkdirSync(cwd, { recursive: true }) } catch (e) { throw new HttpError(400, `Can't create ${cwd}: ${(e as Error).message}`) }
   }
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new HttpError(400, `Not a directory: ${cwd}`)
+  // A new project: a git repository from the start, if asked and it is not in one yet.
+  if (o.gitInit && !inGit(cwd)) {
+    try { execFileSync('git', ['init', '-q'], { cwd, timeout: 15_000, stdio: 'pipe' }) } catch (e) { throw new HttpError(400, `git init failed in ${cwd}: ${(e as Error).message}`) }
+  }
   const mode = MODES.includes(o.permissionMode as PermissionMode) ? o.permissionMode! : 'auto'
   const group = o.group ? String(o.group) : o.parentId ? sessions.get(o.parentId)?.meta.group : undefined
   const s = adopt(newMeta({
-    cwd, title: o.title?.trim() || path.basename(cwd), model: o.model || null, permissionMode: mode,
+    cwd, title: o.title?.trim() || path.basename(cwd), ...(o.title?.trim() ? { titled: true } : {}), model: o.model || null, permissionMode: mode,
     ...(flags.length ? { flags } : {}),
     parentId: o.parentId && sessions.has(o.parentId) ? o.parentId : null,
     // Its group: the one asked for, else its parent's.
@@ -398,6 +455,14 @@ function createSession(o: { cwd: string; title?: string; model?: string | null; 
   }))
   metaChanged()
   return s
+}
+
+// Whether a directory is in a git work tree: it or a folder above it has .git.
+function inGit(dir: string): boolean {
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return true
+    if (path.dirname(d) === d) return false
+  }
 }
 
 // Pick up a session from Claude Code's own history, conversation included.
@@ -432,6 +497,11 @@ function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string
   if (s.meta.kind === 'lead') return { hidden: [board(), status].filter(Boolean).join('\n\n') }
   const out: string[] = []
   if (status) out.push(status)
+  if (s.meta.movedFrom) {
+    out.push(`[Codinger] This session moved, as you asked with move_to_folder. Your working directory is now ${s.meta.cwd}; it was ${s.meta.movedFrom}. Your notes file is now ${notesPath(s.meta)}.`)
+    delete s.meta.movedFrom
+    metaChanged()
+  }
   // Tasks that ended since it last heard; the message keeps their ids, to show them.
   const ended = tasksEnded(s)
   out.push(...ended.map(endText))
@@ -442,7 +512,7 @@ function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string
 // signed with a name; the first time a name shows up in a session, Claude also learns
 // whose login it is. Kept in memory: a restart tells it again.
 const introduced = new Map<string, Set<string>>()
-// "<session> <login>" → the rev of that person's live drafts that a send last took.
+// "<session> <login> <client>" → the rev of that person's live drafts in that browser that a send last took.
 const taken = new Map<string, number>()
 function speakerNote(s: Session, parts: Part[]): string {
   const seen = introduced.get(s.meta.id) ?? new Set<string>()
@@ -695,6 +765,48 @@ function mcpTool(id: string): Tool {
   }
 }
 
+// A session takes its conversation and its notes to another folder. Its tasks stay where they run.
+function moveSession(s: Session, cwd: string) {
+  const m = s.meta, from = m.cwd, notes = notesPath(m)
+  try {
+    if (m.started) moveTranscript(m.claudeSessionId, cwd)
+  } catch (e) { return s.notice(`Could not move to ${cwd}: ${(e as Error).message}`, 'error') }
+  m.cwd = cwd
+  m.movedFrom ??= from
+  try {
+    if (fs.existsSync(notes) && !fs.existsSync(notesPath(m))) { notesDir(m); fs.copyFileSync(notes, notesPath(m)); fs.rmSync(notes) }
+  } catch { /* the notes stay in the old folder */ }
+  s.notice(`Moved from ${from} to ${cwd}. The next message continues this conversation there.`)
+  metaChanged()
+}
+
+function moveTool(id: string): Tool {
+  return {
+    name: 'move_to_folder',
+    description: 'Move this session to another directory: when this turn ends, its working directory becomes that one, and the conversation and your notes go with it. Use it when the work moved (a new repository, another checkout) and the user wants to go on there with this context. Tasks you started keep their directory.',
+    inputSchema: {
+      type: 'object', required: ['cwd'],
+      properties: {
+        cwd: { type: 'string', description: 'Absolute or ~ path to the directory' },
+        mkdir: { type: 'boolean', description: 'Make the directory if it does not exist' },
+      },
+    },
+    run: (args) => {
+      const s = get(id)
+      const raw = String(args?.cwd ?? '').trim()
+      if (!raw) return 'Give a directory.'
+      const cwd = path.resolve(expandHome(raw))
+      if (cwd === path.resolve(s.meta.cwd)) return `You are already in ${cwd}.`
+      if (args?.mkdir && !fs.existsSync(cwd)) {
+        try { fs.mkdirSync(cwd, { recursive: true }) } catch (e) { return `Can't create ${cwd}: ${(e as Error).message}` }
+      }
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return `Not a directory: ${cwd}`
+      s.whenAtRest(() => moveSession(s, cwd))
+      return `Codinger moves this session to ${cwd} when this turn ends. Until then you are still in ${s.meta.cwd}: use absolute paths, and end the turn soon. Your next turn runs there with this conversation.`
+    },
+  }
+}
+
 function titleTool(id: string): Tool {
   return {
     name: 'set_title',
@@ -709,6 +821,7 @@ function titleTool(id: string): Tool {
       // Over a name the user gave, keep theirs to undo to.
       if (m.titleByUser && m.titleBefore == null) m.titleBefore = m.title
       m.title = t
+      m.titled = true
       metaChanged()
       return m.titleBefore != null ? `Renamed to "${t}". The user had named it "${m.titleBefore}" and can undo this.` : `Renamed to "${t}".`
     },
@@ -782,7 +895,7 @@ watchArtifacts(() => broadcast(artifactsMsg()))
 function artifactTool(id: string): Tool {
   return {
     name: 'show_artifact',
-    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url to show a page that a dev server on this machine serves.',
+    description: 'Show an artifact (a page in the artifacts folder) in the preview pane next to this session, and get the script errors of its load. Call it after you make or change one. Or give url (http://localhost:<port>/...) to show a page that a server on this machine serves; behind tailscale serve the desk shares the port on the tailnet so the browser of the user reaches it, else it works only in a browser on this machine.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The artifact\'s folder name' }, url: { type: 'string', description: 'Instead: http://localhost:<port>/...' } } },
     run: async (args) => {
       const s = get(id)
@@ -790,8 +903,18 @@ function artifactTool(id: string): Tool {
         let u: URL
         try { u = new URL(String(args.url)) } catch { return 'Give a full address, like http://localhost:5173/.' }
         if (!/^https?:$/.test(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return 'Only pages on this machine (localhost) show in the pane.'
+        // Behind tailscale serve: the port shared on the tailnet, which the user's browser reaches (server/ports.ts).
+        if (canShare()) {
+          const r = await sharePort(Number(u.port || (u.protocol === 'https:' ? 443 : 80)))
+          if ('error' in r) return r.error
+          const at = r.url + u.pathname + u.search + u.hash
+          broadcast({ type: 'preview', sessionId: id, target: { url: at }, at: Date.now() })
+          return `Shown in the preview pane at ${at}, an address on the user's tailnet that reaches port ${u.port} here. Give the user that address, not localhost. The share ends when the server stops listening.`
+        }
         broadcast({ type: 'preview', sessionId: id, target: { url: u.href }, at: Date.now() })
-        return `Shown in the preview pane: ${u.href}`
+        // The pane loads it in the user's browser, whose localhost is this machine's only on this machine.
+        if (PROXIED) return `Sent to the preview pane: ${u.href}. But the user's browser is on another machine, where this address does not reach this machine, so the pane is probably empty. Show a screenshot instead, or make an artifact.`
+        return `Shown in the preview pane: ${u.href}. If the user's browser is on another machine (they reach this desk through web.codinger.app or a proxy), it can't load this address: show a screenshot instead.`
       }
       const name = String(args?.name ?? '').trim()
       const bad = checkArtifact(name)
@@ -802,7 +925,7 @@ function artifactTool(id: string): Tool {
       const v = showArtifact(name, { sid: id, seq: ev?.seq ?? 0, ts: Date.now(), show: true, tool: call?.type === 'tool_use' ? call.id : undefined })
       artifactsChanged()
       broadcast({ type: 'preview', sessionId: id, target: { artifact: name }, at: Date.now() })
-      return `Shown in the preview pane (http://127.0.0.1:${artifactsPort}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
+      return `Shown in the preview pane (${PROXIED ? `${BASE}/_artifacts` : `http://127.0.0.1:${artifactsPort}`}/${name}/), version ${v}. To show this version in a message, write ![caption](artifact:${name}@${v}) on a line of its own. ${await reportOf(name)}`
     },
   }
 }
@@ -824,6 +947,16 @@ function spendTool(id: string): Tool {
 }
 
 // ---- files an agent shows the user (shared/media.ts) ----
+
+// File an issue for the improvement loop (server/loop.ts).
+function issueTool(id: string): Tool {
+  return {
+    name: 'file_issue',
+    description: "File an issue about this app (workwith, the UI you run in) for its improvement loop: a bug, a rough edge, or a feature that would help you or the user. File one when the app gets in your way or misbehaves, or when the user says something is a workwith bug. The loop builds tiny ones and ships them to main by itself, and prototypes larger ones. Say what is wrong or wanted, where, and how to see it. Keep personal data out: no names of real people, emails, home paths or session text that is not needed.",
+    inputSchema: { type: 'object', required: ['title', 'body'], properties: { title: { type: 'string' }, body: { type: 'string', description: 'Markdown' } } },
+    run: async (args) => `Filed: ${await fileIssue({ title: String(args?.title ?? ''), body: String(args?.body ?? ''), by: null, agent: { session: id } })}`,
+  }
+}
 
 function fileTool(id: string): Tool {
   return {
@@ -955,7 +1088,7 @@ const tools: Tool[] = [
     run: ({ query, limit }) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       const byClaude = new Map(metas().map((m) => [m.claudeSessionId, m.id]))
-      return listHistory()
+      return history()
         .filter((h) => !h.continuedIn && !h.cwd.startsWith(DATA))
         .filter((h) => { const hay = `${h.title} ${h.cwd} ${h.firstPrompt} ${h.lastPrompt}`.toLowerCase(); return words.every((w) => hay.includes(w)) })
         .slice(0, Math.min(Number(limit) || 10, 50))
@@ -1058,7 +1191,7 @@ function startContext(cwd: string, fresh: boolean): Promise<string> {
   const file = promptFile(meta.id, prompt)
   return new Promise((resolve, reject) => {
     execFile(CLAUDE, ['-p', '--output-format', 'json', '--no-session-persistence', '--append-system-prompt-file', file, ...args, '--', '/context'],
-      { cwd, env: childEnv(), timeout: 120_000, windowsHide: true, maxBuffer: 8 << 20 }, (err, out) => {
+      { cwd, env: sessionEnv(childEnv()), timeout: 120_000, windowsHide: true, maxBuffer: 8 << 20 }, (err, out) => {
         fs.rm(file, { force: true }, () => {})
         let text = ''
         try { text = String(JSON.parse(out).result ?? '') } catch { /* reported below */ }
@@ -1155,7 +1288,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       let err = ''
       try { await connectCallback(url) } catch (e) { err = (e as Error).message }
       artifactsChanged()
-      const text = err ? `Codinger could not connect to Prolifica: ${err}` : 'Codinger is connected to Prolifica. You can close this tab.'
+      const text = err ? `workwith could not connect to Prolifica: ${err}` : 'workwith is connected to Prolifica. You can close this tab.'
       res.writeHead(err ? 400 : 200, { 'content-type': 'text/html; charset=utf-8' })
         .end(`<!doctype html><meta charset="utf-8"><title>Prolifica</title><body style="font:15px system-ui;padding:40px">${text.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`)}${err ? '' : '<script>setTimeout(()=>close(),1500)</script>'}`)
       return
@@ -1168,12 +1301,16 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     setTimeout(restart, 100)
     return
   }
+  // What's new: the commits of origin/main, with the issues they name.
+  if (a === 'changelog' && method === 'GET') return send(res, 200, await changelog())
   // The update from origin/main (server/update.ts): now, or by an agent in Codinger's own checkout.
-  // An update runs git and npm, and the update agent a shell.
-  if (a === 'update' && NO_SHELL) throw new HttpError(403, 'Updates are off here (CODINGER_NO_SHELL)')
+  // An update runs git and npm, and the update agent a shell; a managed one (an updater outside
+  // the server installs it) only writes a request file, and has no update agent.
+  if (a === 'update' && NO_SHELL && !(updatesManaged() && id === 'now')) throw new HttpError(403, 'Updates are off here (CODINGER_NO_SHELL)')
   if (a === 'update' && method === 'POST' && id === 'now') return send(res, 200, await updateNow())
   if (a === 'update' && method === 'POST' && id === 'agent') {
-    const s = createSession({ cwd: ROOT, title: 'Update Codinger' })
+    if (updatesManaged()) throw new HttpError(403, 'Updates here are installed from outside workwith')
+    const s = createSession({ cwd: ROOT, title: 'Update workwith' })
     deliver(s, [{ kind: 'text', text: updatePrompt() }])
     return send(res, 200, s.meta)
   }
@@ -1215,6 +1352,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     recordVersion(AGENTS_FILE, { kind: 'settings' })
     return send(res, 200, { path: AGENTS_FILE, text: body.text })
   }
+  if (a === 'issues' && method === 'POST' && !id) {
+    const body = await json(req)
+    try { return send(res, 200, { url: await fileIssue({ title: String(body.title ?? ''), body: String(body.body ?? ''), by: personOf(req) }) }) } catch (e) { throw new HttpError(400, (e as Error).message) }
+  }
   if (a === 'settings' && method === 'PUT') {
     const body = await json(req)
     settings = {
@@ -1238,9 +1379,51 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       ...(body.plan && Number.isFinite(body.plan.usd) && body.plan.usd >= 0 ? { plan: { tier: String(body.plan.tier ?? ''), usd: body.plan.usd, ...(body.plan.yearly ? { yearly: true } : {}) } } : {}),
       ...(body.reviewSeen ? { reviewSeen: { ...settings.reviewSeen, ...Object.fromEntries(['week', 'month'].filter((k) => typeof body.reviewSeen[k] === 'string').map((k) => [k, body.reviewSeen[k]])) } } : {}),
     }
+    // A reaction: one more use of that emoji. The first one also brings what the browser counted before.
+    if (typeof body.emojiUsed === 'string' && body.emojiUsed.length <= 32) {
+      const before = settings.emoji ?? cleanEmojiUse(body.emojiSeed)
+      settings = { ...settings, emoji: bumpEmoji(before, body.emojiUsed) }
+    }
     saveSettings(settings)
     broadcast({ type: 'settings', settings })
     if (body.autoUpdate) updateModeChanged()
+    return send(res, 200, settings)
+  }
+  // An emoji Claude picked for a repository with no icon: kept, so it is asked once.
+  const learnEmoji = (root: string, emoji: string) => {
+    settings = { ...settings, projectEmoji: { ...settings.projectEmoji, [root]: emoji } }
+    saveSettings(settings)
+    broadcast({ type: 'settings', settings })
+  }
+  // Project icons for the sidebar (server/projecticons.ts): the URL for each folder asked of, or null
+  // for the critter; the icon a repository has, for a folder a session works in; and one set by hand
+  // (an image from /api/images, 'none' for the critter, or null to go back to what the repository has).
+  if (a === 'project-icons' && method === 'GET') {
+    // quick=1: the folder picker's rows; a shorter walk, and never a new emoji.
+    const quick = url.searchParams.get('quick') === '1'
+    return send(res, 200, Object.fromEntries(url.searchParams.getAll('cwd').map((cwd) => [cwd, iconOf(settings.projectIcons, settings.projectEmoji, cwd, quick ? undefined : learnEmoji, quick)])))
+  }
+  if (a === 'project-icon' && method === 'GET') {
+    const cwd = url.searchParams.get('cwd') ?? ''
+    const quick = url.searchParams.get('quick') === '1'
+    // A session's folder, or (for the folder picker, which lists any folder) any folder unless the
+    // page is open to people you don't know (CODINGER_NO_SHELL).
+    const file = (!NO_SHELL && quick) || [...sessions.values()].some((s) => s.meta.cwd === cwd) ? iconFile(settings.projectIcons, cwd, quick) : null
+    if (!file) throw new HttpError(404, 'No icon')
+    return sendFile(req, res, file, fs.statSync(file).size, { 'content-type': iconType(file), 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'cache-control': 'max-age=31536000, immutable' })
+  }
+  if (a === 'project-icons' && method === 'PUT') {
+    const body = await json(req)
+    const cwd = String(body.cwd ?? '')
+    const icon = body.icon === 'none' || (typeof body.icon === 'string' && /^\/api\/images\/[\w.-]+$/.test(body.icon)) ? body.icon as string
+      : typeof body.icon === 'string' ? firstEmoji(body.icon) : null
+    if (!cwd) throw new HttpError(400, 'No folder')
+    const icons = { ...settings.projectIcons }
+    if (icon) icons[cwd] = icon
+    else delete icons[cwd]
+    settings = { ...settings, projectIcons: icons }
+    saveSettings(settings)
+    broadcast({ type: 'settings', settings })
     return send(res, 200, settings)
   }
   // What the usage meter has measured, to see how steady its estimate is.
@@ -1296,6 +1479,13 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   // Your plan, and day-by-day spend at API prices, for the cost view (shared/costs.ts).
   if (a === 'costs' && method === 'GET') return send(res, 200, await costs.reply())
   // Estimates in agent time and dollars, next to what the work took (server/estimates.ts).
+  if (a === 'asks') {
+    if (!id && method === 'GET') return send(res, 200, asksReply((sid) => sessions.get(sid)?.meta.title))
+    if (id && method === 'DELETE') {
+      if (!cancelAsk(id)) throw new HttpError(404, 'No such ask')
+      return send(res, 200, { ok: true })
+    }
+  }
   if (a === 'estimates' && method === 'GET') return send(res, 200, estimatesReply((sid) => sessions.get(sid)?.meta.title))
   // Tokens and spend by conversation and folder, from Codinger's copy of the transcripts (shared/usage.ts).
   if (a === 'usage' && method === 'GET') {
@@ -1312,7 +1502,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (a === 'history' && !id && method === 'GET') {
     const byClaude = new Map(metas().map((m) => [m.claudeSessionId, m.id]))
     const q = (url.searchParams.get('q') ?? '').toLowerCase()
-    const items = listHistory()
+    const items = history()
       .filter((h) => !h.continuedIn && !h.cwd.startsWith(DATA))
       .filter((h) => !q || `${h.title} ${h.cwd} ${h.firstPrompt} ${h.lastPrompt}`.toLowerCase().includes(q))
       .slice(0, 300)
@@ -1328,27 +1518,44 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (!cur || cur.ts < ts) seen.set(p, { path: p, ts, source: cur && cur.source !== source ? 'both' : source })
     }
     for (const m of metas()) if (m.kind === 'worker') add(m.cwd, m.lastActivity, 'codinger')
-    for (const h of listHistory()) add(h.cwd, h.mtime, 'claude')
-    const dirs = [...seen.values()].filter((d) => fs.existsSync(d.path)).sort((x, y) => y.ts - x.ts).slice(0, 60)
+    for (const h of history()) add(h.cwd, h.mtime, 'claude')
+    // One in a folder macOS guards is listed unchecked: checking would wait for macOS (server/guarded.ts).
+    const dirs = [...seen.values()].filter((d) => !readable(d.path) || fs.existsSync(d.path)).sort((x, y) => y.ts - x.ts).slice(0, 60)
     return send(res, 200, dirs)
   }
   if (a === 'fs' && id === 'dirs' && method === 'GET') {
     const p = expandHome(url.searchParams.get('path') || '~')
+    if (!(await canRead(p))) throw new HttpError(403, guardedMessage(p))
     try { return send(res, 200, listDirs(p, url.searchParams.get('hidden') === '1')) } catch { throw new HttpError(400, `Can't read ${p}`) }
   }
   if (a === 'fs' && id === 'stat' && method === 'GET') {
     const p = path.resolve(expandHome((url.searchParams.get('path') || '').trim() || '~'))
     let kind: 'dir' | 'file' | 'missing' = 'missing'
     try { kind = fs.statSync(p).isDirectory() ? 'dir' : 'file' } catch {}
-    return send(res, 200, { path: p, kind })
+    return send(res, 200, { path: p, kind, git: kind === 'dir' && inGit(p) })
+  }
+  if (a === 'fs' && id === 'mkdir' && method === 'POST') {
+    // A new folder from the folder browser: one name in a folder that is there.
+    const body = await json(req)
+    const parent = path.resolve(expandHome(String(body.parent ?? '').trim() || '~'))
+    const name = String(body.name ?? '').trim()
+    if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new HttpError(400, 'Give a folder name, with no slashes')
+    if (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory()) throw new HttpError(400, `Not a directory: ${parent}`)
+    const p = path.join(parent, name)
+    if (fs.existsSync(p)) throw new HttpError(400, `${p} is there already`)
+    try { fs.mkdirSync(p) } catch (e) { throw new HttpError(400, `Can't create ${p}: ${(e as Error).message}`) }
+    return send(res, 200, { path: p })
   }
   if (a === 'fs' && id === 'exists' && method === 'POST') {
     // Paths named in a reply (absolute, ~/, or under the session's directory, maybe with :line): which are there.
+    // sid and seq: the session and the message, for a path relative to a worktree (server/files.ts locate).
     const body = await json(req)
     const cwd = expandHome(String(body.cwd ?? '~'))
+    const from = sessions.get(String(body.sid)), seq = Number(body.seq)
     const out: Record<string, string | null> = {}
     for (const p of (Array.isArray(body.paths) ? body.paths : []).slice(0, 200).map(String)) {
-      const abs = path.resolve(cwd, expandHome(p.replace(/(:\d+){1,2}$/, '')))
+      const bare = p.replace(/(:\d+){1,2}$/, '')
+      const abs = path.resolve(cwd, expandHome(from && seq ? locate(from.meta, from.getEvents(), bare, seq) : bare))
       out[p] = fs.existsSync(abs) ? abs : null
     }
     return send(res, 200, out)
@@ -1459,6 +1666,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (body.undo && s.meta.titleBefore != null) s.meta.titleUndone = s.meta.title
       s.meta.title = body.title.trim()
       s.meta.titleByUser = true
+      s.meta.titled = true
       s.meta.titleBefore = undefined
     }
     // Into another sidebar group (null: none), with the sessions it started that were in its old one.
@@ -1471,7 +1679,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       move(s.meta)
     }
     if (typeof body.starred === 'boolean' && s.meta.kind === 'worker') s.meta.starred = body.starred || undefined
-    if (typeof body.archived === 'boolean' && s.meta.kind === 'worker') { s.meta.archived = body.archived; if (body.archived) s.stop() }
+    if (typeof body.archived === 'boolean' && s.meta.kind === 'worker') { s.meta.archived = body.archived; s.meta.dropped = undefined; if (body.archived) s.stop() }
+    if (typeof body.dropped === 'boolean' && s.meta.kind === 'worker') s.meta.dropped = body.dropped || undefined
     if (MODES.includes(body.permissionMode)) {
       s.setPermissionMode(body.permissionMode)
       if (!AUTOPILOT_MODES.includes(body.permissionMode)) endAutopilot(s, 'you changed the permission mode')
@@ -1484,6 +1693,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     s.stop()
     sessions.delete(id)
     forgetAsks(id)
+    forgetIcon(id)
     deleteEvents(id)
     metaChanged()
     return send(res, 200, { ok: true })
@@ -1506,14 +1716,20 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
   if (b === 'fs' && method === 'GET') {
     // A folder or a file for the Files pane (server/files.ts): a folder's entries, or a file's size.
-    const abs = allowed(s.meta, s.getEvents(), url.searchParams.get('path') || '.')
+    // seq: the message that names the path, which can be relative to a worktree.
+    const named = url.searchParams.get('path') || '.', seq = Number(url.searchParams.get('seq'))
+    const abs = allowed(s.meta, s.getEvents(), seq ? locate(s.meta, s.getEvents(), named, seq) : named)
+    if (abs && !(await canRead(abs))) throw new HttpError(403, guardedMessage(abs))
     let st: fs.Stats | null = null
     try { st = abs ? fs.statSync(abs) : null } catch {}
     if (!abs || !st) throw new HttpError(404, 'No such file, or not one this session can show')
     if (st.isDirectory()) return send(res, 200, { path: abs, kind: 'dir', entries: await listDir(abs) })
     return send(res, 200, { path: abs, kind: 'file', size: st.size, mtime: st.mtimeMs })
   }
-  if (b === 'find' && method === 'GET') return send(res, 200, await findFiles(path.resolve(s.meta.cwd), url.searchParams.get('q') ?? ''))
+  if (b === 'find' && method === 'GET') {
+    if (!(await canRead(s.meta.cwd))) throw new HttpError(403, guardedMessage(s.meta.cwd))
+    return send(res, 200, await findFiles(path.resolve(s.meta.cwd), url.searchParams.get('q') ?? ''))
+  }
   if (b === 'uncommitted' && method === 'GET') return send(res, 200, { files: await uncommitted(s.meta.cwd) })
   if (b === 'diff' && method === 'GET') {
     const abs = allowed(s.meta, s.getEvents(), url.searchParams.get('path') || '')
@@ -1554,8 +1770,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (b === 'autopilot' && method === 'DELETE') { endAutopilot(s, 'you turned it off'); return send(res, 200, s.meta) }
   if (method !== 'POST') throw notFound()
   const body = await json(req)
-  // A message you send to an archived session takes it out of the archive.
-  const reopen = (s: Session) => { if (s.meta.archived) { s.meta.archived = false; metaChanged() } }
+  // A message you send to an archived or dropped session picks it up again.
+  const reopen = (s: Session) => { if (s.meta.archived || s.meta.dropped) { s.meta.archived = false; s.meta.dropped = undefined; metaChanged() } }
   switch (b) {
     case 'send': {
       const me = personOf(req)
@@ -1569,7 +1785,12 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const command = !!slashCommand(own)
       const held = command ? [] : s.meta.held ?? []
       const live = command ? [] : s.meta.live ?? []
-      let p: Part[] = [...held.flatMap((h) => h.parts), ...live.filter((l) => l.id !== me?.login).flatMap((l) => l.parts), ...own]
+      // What this person wrote in another browser (a phone, a laptop) goes along too, but not a
+      // reply that is in this message as well. This browser's own copy is the message itself.
+      const client = typeof body.client === 'string' ? body.client : undefined
+      const same = new Set(own.map((x) => JSON.stringify(x)))
+      const along = live.filter((l) => l.id !== me?.login || l.client !== client).flatMap((l) => l.id === me?.login ? l.parts.filter((x) => !same.has(JSON.stringify(x))) : l.parts)
+      let p: Part[] = [...held.flatMap((h) => h.parts), ...along, ...own]
       // Messages from other sessions that waited on it go in with this one.
       if (s.meta.pendingCritical) p = [...p, ...takeMail(s)]
       // The lead's drafts that went with your reply.
@@ -1584,7 +1805,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (held.length) { s.meta.held = []; metaChanged() }
       if (live.length) {
         for (const l of live) {
-          taken.set(`${s.meta.id} ${l.id}`, l.rev)
+          taken.set(`${s.meta.id} ${l.id} ${l.client ?? ''}`, l.rev)
           broadcast({ type: 'taken', sessionId: s.meta.id, login: l.id, rev: l.rev })
         }
         s.meta.live = []; metaChanged()
@@ -1594,13 +1815,15 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // What this person is writing now, as they write it: everyone sees it (meta.live).
     case 'live': {
       const me = personOf(req)
-      if (!me) throw new HttpError(400, 'Codinger does not know who you are')
+      if (!me) throw new HttpError(400, 'workwith does not know who you are')
       const rev = Number(body.rev)
       // A copy from before a send that already took it.
-      if (!(rev > (taken.get(`${s.meta.id} ${me.login}`) ?? 0))) return send(res, 200, { ok: true, stale: true })
+      const client = typeof body.client === 'string' ? body.client : undefined
+      if (!(rev > (taken.get(`${s.meta.id} ${me.login} ${client ?? ''}`) ?? 0))) return send(res, 200, { ok: true, stale: true })
       const parts = sign(Array.isArray(body.parts) ? body.parts : [], me)
-      const others = (s.meta.live ?? []).filter((l) => l.id !== me.login)
-      s.meta.live = parts.length ? [...others, { id: me.login, by: me, parts, ts: Date.now(), rev }] : others
+      // One copy for each browser of a person; a copy from before browsers had names goes.
+      const others = (s.meta.live ?? []).filter((l) => l.id !== me.login || (!!l.client && l.client !== client))
+      s.meta.live = parts.length ? [...others, { id: me.login, by: me, parts, ts: Date.now(), rev, ...(client ? { client } : {}) }] : others
       metaChanged()
       return send(res, 200, { ok: true })
     }
@@ -1619,9 +1842,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       metaChanged()
       return send(res, 200, { ok: true })
     }
-    // Your OK for a message another session sent, held past the limit; or send: false to drop it.
+    // Your OK for a message another session sent, held past the limit or to an archived session;
+    // or send: false to drop it. note: your words to the sender of a message to an archived session.
     case 'mail':
-      try { release(s, String(c), body.send !== false) } catch (e) { throw new HttpError(404, (e as Error).message) }
+      try { release(s, String(c), body.send !== false, String(body.note ?? '')) } catch (e) { throw new HttpError(404, (e as Error).message) }
       return send(res, 200, { ok: true })
     case 'drafting':
       if (s.meta.drafting !== !!body.on) { s.meta.drafting = !!body.on; metaChanged() }
@@ -1704,6 +1928,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       s.meta.share = await publishShare(s.meta, s.getEvents(), settings, shareOpts(body))
       metaChanged()
       return send(res, 200, s.meta)
+    // The session's critter as a PNG, for its push notifications (web/src/critterIcon.tsx).
+    case 'icon':
+      if (!setIcon(s.meta.id, String(body.png ?? ''))) throw new HttpError(400, 'A PNG data URL of at most 2600 characters')
+      return send(res, 200, { ok: true })
     case 'seen': s.markSeen(); return send(res, 200, { ok: true })
     case 'unread': s.markUnread(); return send(res, 200, { ok: true })
     case 'permission':
@@ -1726,7 +1954,10 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'Codinger only answers requests from its own page')
+    // An artifact's page loads its data and reports its errors from a sandboxed frame, whose
+    // origin is "null": it comes before the check of the origin, and reaches only the artifacts.
+    if (localHost(req) && /^\/_artifacts(\/|$)/.test(underBase(BASE, req.url ?? '/'))) return proxyArtifacts(req, res, underBase(BASE, req.url ?? '/').slice('/_artifacts'.length) || '/')
+    if (!localHost(req) || !localOrigin(req)) throw new HttpError(403, 'workwith only answers requests from its own page')
     // Under CODINGER_BASE the page is at <base>/, so its service worker can have that scope.
     if (BASE && req.url === BASE) { res.writeHead(308, { location: BASE + '/' }).end(); return }
     req.url = underBase(BASE, req.url ?? '/')
@@ -1736,7 +1967,7 @@ const server = http.createServer(async (req, res) => {
       return await handleMcp(req, res, lead ? [...tools, lookTool(lead.meta.id)] : tools)
     }
     const look = url.pathname.startsWith(`/mcp/${MCP_TOKEN}/look/`) && url.pathname.split('/').pop()
-    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look)])
+    if (look && sessions.has(look)) return await handleMcp(req, res, [lookTool(look), titleTool(look), moveTool(look), claimTool(look), mcpTool(look), artifactTool(look), fileTool(look), ...(settings.estimates !== false ? [spendTool(look), ...estimateTools(look, () => get(look).meta)] : []), ...taskTools(look), ...mailTools(look), ...askTools(look), ...(settings.issues?.repo ? [issueTool(look)] : [])])
     // The web UI asks this first; here it is a machine's own page.
     if (url.pathname === '/_remote/whoami') return send(res, 200, { web: false })
     if (url.pathname.startsWith('/api/remote/m/') || url.pathname.startsWith('/api/remote/machines') || /^\/api\/remote\/push\/(key|subscribe|unsubscribe)$/.test(url.pathname)) return await remoteProxy(req, res, url)
@@ -1751,6 +1982,21 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) send(res, status, { error: e instanceof Error ? e.message : String(e) })
   }
 })
+
+// The artifacts server listens on 127.0.0.1 only, which a browser on another machine can't reach
+// (issue #3): the page frames artifacts from <base>/_artifacts/ then (web/src/store.ts, artifactsBase).
+// That is the page's own origin, so each response is sandboxed with no allow-same-origin: an
+// artifact runs in an origin of its own, as it does on the artifacts server's port.
+const ARTIFACT_SANDBOX = 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-modals'
+function proxyArtifacts(req: http.IncomingMessage, res: http.ServerResponse, rest: string) {
+  const headers = { ...req.headers, host: `127.0.0.1:${artifactsPort}`, 'x-codinger-base': `${BASE}/_artifacts`, 'x-codinger-origin': originOf(req) }
+  const p = http.request({ host: '127.0.0.1', port: artifactsPort, method: req.method, path: rest, headers }, (r) => {
+    res.writeHead(r.statusCode ?? 502, { ...r.headers, 'content-security-policy': ARTIFACT_SANDBOX })
+    r.pipe(res)
+  })
+  p.on('error', () => { if (!res.headersSent) res.writeHead(502).end('The artifacts server did not answer') })
+  req.pipe(p)
+}
 
 const DIST = path.join(ROOT, 'dist')
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' }
@@ -1799,11 +2045,21 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     sockets.add(ws)
     present.set(ws, personOf(req))
-    ws.on('close', () => { sockets.delete(ws); present.delete(ws); broadcast({ type: 'people', people: people() }) })
-    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing() } satisfies ServerMsg))
+    ws.on('close', () => { sockets.delete(ws); present.delete(ws); viewing.delete(ws); broadcast(peopleMsg()) })
+    ws.on('message', (raw) => {
+      let m: ClientMsg
+      try { m = JSON.parse(String(raw)) } catch { return }
+      if (m?.type !== 'viewing' || !present.get(ws)) return
+      const sid = typeof m.sessionId === 'string' && sessions.has(m.sessionId) ? m.sessionId : null
+      if ((viewing.get(ws) ?? null) === sid) return
+      if (sid) viewing.set(ws, sid)
+      else viewing.delete(ws)
+      broadcast(peopleMsg())
+    })
+    ws.send(JSON.stringify({ type: 'hello', sessions: metas(), settings, usage, platform: process.platform, home: os.homedir(), defaultDir: DEFAULT_DIR, auth: authState(), stale, staleAt, update: updateStatus(), remote: remoteStatus(), device: deviceType(), agent: agentInfo(), me: personOf(req), askName: ASK_NAME, billing: billing(), billingNote: billingNote() } satisfies ServerMsg))
     ws.send(JSON.stringify({ type: 'tasks', tasks: allTasks() } satisfies ServerMsg))
     ws.send(JSON.stringify(artifactsMsg()))
-    broadcast({ type: 'people', people: people() })
+    broadcast(peopleMsg())
   })
 })
 
@@ -1848,6 +2104,12 @@ initFileHistory({
   changed: (p) => broadcast({ type: 'file', path: p }),
 })
 
+// Billing moved between the plan and the provider: idle processes start again on the new one.
+onBilling(() => {
+  for (const s of sessions.values()) s.restartIfIdle()
+  broadcast({ type: 'billing', billing: billing(), note: billingNote() })
+})
+
 initAuth({
   change: (auth) => broadcast({ type: 'auth', auth }),
   signedIn: () => { for (const s of sessions.values()) s.retryAfterSignIn((p) => hiddenFor(s, p)) },
@@ -1861,9 +2123,11 @@ server.keepAliveTimeout = 150_000
 server.headersTimeout = 155_000
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Codinger on http://localhost:${PORT}${DEV ? ' (dev)' : ''}`)
+  startPortShares()
   startRemote(PORT, artifactsPort, (remote) => broadcast({ type: 'remote', remote }))
-  startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }) })
+  startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }), issues: issuesOf })
   findDevice((device) => broadcast({ type: 'device', device }))
+  void backfillActive((sid) => sessions.get(sid)?.meta.claudeSessionId).catch(() => {})
 })
 
 // ---- restarting itself --------------------------------------------------------

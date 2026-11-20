@@ -135,7 +135,7 @@ export function PublishControl({ a, v }: { a: Artifact; v?: number }) {
   return (
     <span className="publish">
       {p && <a href={p.url} target="_blank" rel="noreferrer" className="publish-link" data-tip={`Version ${p.version} on Prolifica, published ${timeAgo(p.at)} (${p.visibility})`}>Prolifica v{p.version} <OpenIcon size={11} /></a>}
-      <button className="publish-btn" disabled={running} onClick={() => void press()} data-tip={st.prolifica ? 'Publish to Prolifica' : 'Publish to Prolifica (connects Codinger to it first)'}>{waiting ? 'Approve in the browser…' : running ? 'Publishing…' : 'Publish'}</button>
+      <button className="publish-btn" disabled={running} onClick={() => void press()} data-tip={st.prolifica ? 'Publish to Prolifica' : 'Publish to Prolifica (connects workwith to it first)'}>{waiting ? 'Approve in the browser…' : running ? 'Publishing…' : 'Publish'}</button>
       {open && (
         <div className="publish-pop">
           <div className="small">{upAs != null
@@ -417,7 +417,7 @@ export function ArtifactsView() {
           <Splitter width={histH} setWidth={setHistH} min={60} max={700} initial={180} vertical reverse />
           <div className="artifact-history" style={{ '--hist-h': `${histH}px` } as React.CSSProperties}>
             <h3>History</h3>
-            {!touches.length && <div className="muted small">No session has written it since Codinger began to record.</div>}
+            {!touches.length && <div className="muted small">No session has written it since workwith began to record.</div>}
             <ul>{touches.map((t) => <TouchRow key={`${t.sid}:${t.seq}:${t.tool ?? ''}`} a={a} t={t} on={t.v != null && t.v === (v ?? a.latest)} onShow={() => setV(t.v === a.latest ? undefined : t.v)} />)}</ul>
             <div className="muted small">Folder: <code>~/.codinger/artifacts/{a.name}</code></div>
           </div>

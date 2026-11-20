@@ -9,9 +9,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Event, ImageRef, SessionMeta, Settings } from '../shared/types.ts'
+import { codingerEnv } from './oldenv.ts'
 
 const OLD_DATA = path.join(os.homedir(), '.codiner')
-export const DATA = process.env.CODINGER_HOME ?? process.env.CODINER_HOME ?? homeData()
+export const DATA = codingerEnv('HOME') ?? homeData()
 // Codinger was called Codiner until October 2026. Move ~/.codiner once, and leave a link
 // there for the sessions and tasks that a restart keeps running, which still use the old path.
 // Claude Code keeps the lead's conversation under its directory's name: move that too.
@@ -38,6 +39,27 @@ const PROMPTS = path.join(DATA, 'prompts')
 const OLD_LEAD_DIR = path.join(DATA, 'master')
 if (fs.existsSync(OLD_LEAD_DIR) && !fs.existsSync(LEAD_DIR)) fs.renameSync(OLD_LEAD_DIR, LEAD_DIR)
 for (const d of [DATA, EVENTS, IMAGES, MEDIA, LEAD_DIR, PROMPTS]) fs.mkdirSync(d, { recursive: true })
+
+// One server for each data folder. A second one (a test or a dev server that found this
+// desk's CODINGER_HOME) would sweep the first one's claude processes and write over its
+// sessions.json. A restart's new server waits a few seconds for the old one to go.
+const LOCK = path.join(DATA, 'server.pid')
+function holder(): number {
+  let pid = 0
+  try { pid = Number(fs.readFileSync(LOCK, 'utf8')) } catch { return 0 }
+  if (!pid || pid === process.pid) return 0
+  try { process.kill(pid, 0) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EPERM') return 0 }
+  return pid
+}
+for (let waited = 0; holder(); waited += 250) {
+  if (waited >= 10_000) {
+    console.error(`Another Codinger server (pid ${holder()}) uses ${DATA}. Set CODINGER_HOME to another folder.`)
+    process.exit(1)
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250)
+}
+fs.writeFileSync(LOCK, String(process.pid))
+process.on('exit', () => { try { if (Number(fs.readFileSync(LOCK, 'utf8')) === process.pid) fs.rmSync(LOCK) } catch { /* gone */ } })
 export const LEAD_NOTES = path.join(LEAD_DIR, 'LEAD_NOTES.md')
 // The lead's notes were NOTES.md until October 2026. Move them once (their history moves in index.ts).
 export const OLD_LEAD_NOTES = path.join(LEAD_DIR, 'NOTES.md')
@@ -75,13 +97,29 @@ export function saveSessions(all: () => SessionMeta[]) {
   }, 200)
 }
 
-export function loadSettings(): Settings {
-  try {
-    const { masterAutoSend, ...s } = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'))
-    return { leadAutoSend: masterAutoSend ?? false, ...s }
-  } catch { return { leadAutoSend: false } }
+// Settings this checkout gives every desk that runs it, under the desk's own (workwith.json
+// at the root): the issues repo, so each desk on main can file issues with no setup.
+// A desk turns one off with null in its own settings ("issues": null). CODINGER_ISSUES=off
+// turns issues off on a desk that can't reach the repo, whatever the settings say.
+function checkoutDefaults(): Partial<Settings> {
+  try { return JSON.parse(fs.readFileSync(new URL('../workwith.json', import.meta.url), 'utf8')) } catch { return {} }
 }
-export function saveSettings(s: Settings) { fs.writeFileSync(SETTINGS, JSON.stringify(s, null, 1)) }
+
+export function loadSettings(): Settings {
+  let own: Record<string, unknown> = {}
+  try { own = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch { /* none yet */ }
+  const { masterAutoSend, ...s } = { ...checkoutDefaults(), ...own } as Settings & { masterAutoSend?: boolean }
+  if (/^(off|0|false|no)$/i.test(codingerEnv('ISSUES') ?? '')) s.issues = null
+  return { ...s, leadAutoSend: (s.leadAutoSend ?? masterAutoSend ?? false) as boolean }
+}
+// The issues setting is only ever set by hand: what is in the file stays, so a default from
+// workwith.json or CODINGER_ISSUES never gets written into it.
+export function saveSettings(s: Settings) {
+  const { issues: _ignored, ...rest } = s
+  let own: Record<string, unknown> = {}
+  try { own = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch { /* none yet */ }
+  fs.writeFileSync(SETTINGS, JSON.stringify({ ...rest, ...('issues' in own ? { issues: own.issues } : {}) }, null, 1))
+}
 
 // Context window per model. Claude Code only reports it in a turn's result, so
 // remember what each model reported and use it from the start next time.

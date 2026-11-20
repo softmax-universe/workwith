@@ -75,8 +75,10 @@ self.addEventListener('push', (e) => {
   let d = {}
   try { d = e.data ? e.data.json() : {} } catch { /* not JSON */ }
   // One notification for each session: a new one takes the place of the old.
-  e.waitUntil(self.registration.showNotification(d.title || 'Codinger', {
+  e.waitUntil(self.registration.showNotification(d.title || 'workwith', {
     body: d.body || '',
+    // The session's critter; an iPhone shows the app's icon in its place.
+    ...(d.icon ? { icon: d.icon } : {}),
     tag: `${d.machine}~${d.session}`,
     renotify: true,
     data: { machine: d.machine || '', session: d.session || '' },

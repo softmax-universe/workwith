@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify'
 import type { ImageRef } from '../../shared/types.ts'
 import { MEDIA_URL, embedOf, mediaKind } from '../../shared/media.ts'
 import { api, localId, media, state } from './store.ts'
+import { frameBoxHtml } from './frameZoom.tsx'
 
 export const marked = new Marked(
   markedHighlight({ emptyLangClass: 'hljs', langPrefix: 'hljs language-', highlight: (code, lang) => linkUrls(highlight(code, lang)) }),
@@ -80,8 +81,8 @@ function mediaHtml(href: string, alt: string): string | false {
   switch (mediaKind(href)) {
     case 'video': return `<video class="media-video" src="${src}" controls preload="metadata" playsinline></video>`
     case 'audio': return `<audio class="media-audio" src="${src}" controls preload="metadata"></audio>`
-    case 'pdf': return `<iframe class="media-frame" src="${src}" aria-label="${label}"></iframe>`
-    case 'page': return `<iframe class="media-frame" src="${src}" sandbox="allow-scripts allow-popups" aria-label="${label}"></iframe>`
+    case 'pdf': return frameBoxHtml(`<iframe class="media-frame" src="${src}" aria-label="${label}"></iframe>`)
+    case 'page': return frameBoxHtml(`<iframe class="media-frame" src="${src}" sandbox="allow-scripts allow-popups" aria-label="${label}"></iframe>`)
     case 'file': return MEDIA_URL.test(href) ? `<a class="media-file" href="${src}" target="_blank">${escapeHtml(alt || 'Open the file')}</a>` : false
     default: return false
   }
@@ -132,6 +133,17 @@ export const kTokens = (n: number) => n >= 1_000_000 ? `${+(n / 1_000_000).toFix
 // How worn out a session is. Quality slips well before a 1M window is full,
 // so tiredness is measured against at most 400k tokens.
 export const fatigue = (used: number, window: number) => Math.min(1, used / Math.min(window || 200_000, 400_000))
+
+// When a message was sent: the time today, else the day too, and the year when it was another year.
+export function clockTime(ts: number): string {
+  const d = new Date(ts), now = new Date()
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (d.toDateString() === now.toDateString()) return time
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
+  return `${day}, ${time}`
+}
+// The same in full, for its tooltip.
+export const fullTime = (ts: number) => new Date(ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
 
 export function timeAgo(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000)

@@ -26,7 +26,7 @@ export function LeadView({ id }: { id: string }) {
     })
     setTimeout(() => setSentNote(null), 8000)
   }
-  const needsYou = sessions.filter((s) => s.kind === 'worker' && !s.archived && (['permission', 'asking', 'waiting', 'error'].includes(s.status) || !!s.pendingCritical))
+  const needsYou = sessions.filter((s) => s.kind === 'worker' && !s.archived && !s.dropped && (['permission', 'asking', 'waiting', 'error'].includes(s.status) || !!s.pendingCritical))
 
   return (
     <div className="lead">

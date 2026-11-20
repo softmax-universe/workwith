@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Held as HeldReplies, Mail, Part, PermissionMode, SessionMeta, SlashCommand } from '../../../shared/types.ts'
 import { MAX_RUN } from '../../../shared/mail.ts'
-import { agentName, api, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
+import { agentName, api, archiveAsksOf, changed, closeSession, composerOf, draftsOf, hasContent, loadEvents, othersLive, queuedParts, select, sendQueued, senders, setComposer, state, undismissItem, useStore, deselect, globalId, machineOf, localId, quietly, panelOf, setPanel, type PanelTab } from '../store.ts'
 import { fatigue, kTokens } from '../util.ts'
 import { Mascot, STATUS_LABEL } from './Mascot.tsx'
+import { SessionFace } from './ProjectIcon.tsx'
 import { dragToGroup } from './Sidebar.tsx'
 import { RichInput } from './Inputs.tsx'
 import { Who } from './Who.tsx'
@@ -89,7 +90,7 @@ function IdChip({ m }: { m: SessionMeta }) {
   const [copied, setCopied] = useState(false)
   const name = `codinger-${localId(m.id)}`
   const copy = () => { void navigator.clipboard.writeText(name); setCopied(true); setTimeout(() => setCopied(false), 1200) }
-  return <button className="link mono head-id" title={`Codinger session ${localId(m.id)}\nClaude Code: name ${name}, session ${m.claudeSessionId}\nClick to copy the name`} onClick={copy}>{copied ? 'copied' : name}</button>
+  return <button className="link mono head-id" title={`workwith session ${localId(m.id)}\nClaude Code: name ${name}, session ${m.claudeSessionId}\nClick to copy the name`} onClick={copy}>{copied ? 'copied' : name}</button>
 }
 
 export function SessionHeader({ m, extra }: { m: SessionMeta; extra?: React.ReactNode }) {
@@ -121,7 +122,7 @@ export function SessionHeader({ m, extra }: { m: SessionMeta; extra?: React.Reac
     <header ref={head} className={`session-head${narrow ? ' narrow' : ''}${more ? ' head-open' : ''}`}>
       {/* Drag it onto a group in the sidebar to move the session there. */}
       <span className="head-critter" onPointerDown={(e) => dragToGroup(e, m)}>
-        <Mascot status={m.status} look={m.look} fatigue={fatigue(m.context.used, m.context.window)} size={44} title={STATUS_LABEL[m.status]} child={!!m.parentId} review={!!m.pendingReviews} starred={m.starred} />
+        <SessionFace s={m} size={44} title={STATUS_LABEL[m.status]} />
       </span>
       <div className="head-main">
         {editing
@@ -234,11 +235,12 @@ function SessionMenu({ m, open, setOpen, onPublish }: { m: SessionMeta; open: Me
     worker && <button key="autopilot" className={autopilotOn(m) ? 'autopilot-on' : ''} onClick={() => setOpen('autopilot')}>
       {autopilotOn(m) ? `Autopilot · ${budgetLabel(ap!.unit, Math.max(0, ap!.budget - ap!.used))} left` : 'Autopilot'}
     </button>,
+    worker && <button key="star" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { starred: !m.starred }))}>{m.starred ? 'Remove star' : 'Star'}</button>,
     worker && <button key="publish" onClick={act(onPublish)}>{m.share ? 'Published transcript' : 'Publish transcript'}</button>,
+    worker && !m.archived && <button key="drop" title={m.dropped ? 'Back among your sessions' : 'Let it go for now: to the Overhang, with no badges or pushes'} onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { dropped: !m.dropped }))}>{m.dropped ? 'Pick up again' : 'Drop for now'}</button>,
     worker && !m.archived && <button key="close" title="Archive session" onClick={act(() => closeSession(m.id))}>Close</button>,
     worker && m.archived && <button key="reopen" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { archived: false }))}>Reopen</button>,
-    worker && m.archived && <button key="delete" className="danger" title="Remove from Codinger (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from Codinger? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,
-    worker && <button key="star" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { starred: !m.starred }))}>{m.starred ? 'Remove star' : 'Star'}</button>,
+    worker && m.archived && <button key="delete" className="danger" title="Remove from workwith (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from workwith? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,
   ].filter(Boolean)
   // Press, drag to an item and release to choose it, as in a native menu. A press opens the
   // menu; a release over an item clicks it, a release away from the menu closes it, and a
@@ -397,10 +399,35 @@ function Batch({ h, unhold }: { h: HeldReplies; unhold?: (id: string, part?: num
         <div key={i} className={`held-part${p.kind === 'text' ? ' message' : ''}`}>
           {p.kind === 'note' && p.quote.trim() && <span className="held-quote">“{p.quote.length > 80 ? p.quote.slice(0, 80) + '…' : p.quote}”</span>}
           {p.kind === 'answer' && <span className="held-quote">{p.question.split('\n')[0]}</span>}
-          <span className="held-text">{p.kind === 'dismiss' ? `dismissed ${p.items.length}` : p.kind === 'done' ? `done: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'answer' && p.choices?.length ? `${p.choices.join('; ')} ${p.text}` : p.text}</span>
+          <span className="held-text">{p.kind === 'dismiss' ? `dismissed ${p.items.length}` : p.kind === 'done' ? `done: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'check' ? `ticks: ${p.items.map((x) => x.label).join(', ')}` : p.kind === 'answer' && p.choices?.length ? `${p.choices.join('; ')} ${p.text}` : p.text}</span>
           {unhold && h.parts.length > 1 && <button className="icon-btn" title="Take this one back" onClick={() => unhold(h.id, i)}><XIcon size={11} /></button>}
         </div>
       ))}
+    </div>
+  )
+}
+
+// A message this session wants to send to an archived session. A yes takes that session out of
+// the archive; a no tells this session that the message did not go.
+function ArchiveAsk({ to, x }: { to: SessionMeta; x: Mail }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const answer = async (send: boolean) => {
+    setBusy(true)
+    try { await api(`/api/sessions/${to.id}/mail/${x.id}`, 'POST', { send, note }) } finally { setBusy(false) }
+  }
+  return (
+    <div className="inbox-item archive-ask" data-pid="archive-ask">
+      <div className="inbox-head">
+        <span className="inbox-from"><MailIcon size={12} /> Asks to write to {to.archived ? 'an archived session' : 'a session'}</span>
+        <button className="link inbox-on" onClick={() => select(to.id)}>{to.title}</button>
+      </div>
+      <div className="mail-text">{x.text}</div>
+      <div className="perm-actions">
+        <button className="primary" disabled={busy} onClick={() => answer(true)}>Send</button>
+        <input placeholder="Note to this session" value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="danger" disabled={busy} onClick={() => answer(false)}>Do not send</button>
+      </div>
     </div>
   )
 }
@@ -443,7 +470,7 @@ function Mailbox({ m }: { m: SessionMeta }) {
           <div className="inbox-head">
             <span className="inbox-from"><MailIcon size={12} /> {x.idle ? `${name(x)} is idle` : x.replyTo ? `Reply from ${name(x)}` : `From ${name(x)}`}</span>
             <span className="inbox-on">
-              {x.held ? `Waits for your OK: ${name(x)} sent ${MAX_RUN} messages in a row here, and you wrote in neither session since.` : x.step ? `Goes in when ${name(x)} goes on or ends its turn` : 'Goes in when this turn ends'}
+              {x.reopens ? `Waits for your OK: ${name(x)} asks to take this session out of the archive with this message.` : x.held ? `Waits for your OK: ${name(x)} sent ${MAX_RUN} messages in a row here, and you wrote in neither session since.` : x.step ? `Goes in when ${name(x)} goes on or ends its turn` : 'Goes in when this turn ends'}
             </span>
             {x.held && <button className="link" onClick={() => act(x.id, true)}>Send</button>}
             <button className="icon-btn" title="Discard the message" onClick={() => act(x.id, false)}><XIcon size={13} /></button>
@@ -516,10 +543,12 @@ function DismissedChip({ sid }: { sid: string }) {
 }
 
 // On a phone the word goes, for room.
+const MOD = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 const resolve = (n: number) => <>Resolve {n}<span className="not-phone not-narrow"> {n === 1 ? 'issue' : 'issues'}</span> ↑</>
 
 export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.RefObject<((files: File[]) => void) | null> }) {
-  useStore()
+  const { sessions } = useStore()
+  const asks = archiveAsksOf(sessions, m.id)
   const c = composerOf(m.id)
   const drafts = draftsOf(m.id).filter(hasContent)
   const reactions = drafts.filter((d) => (d.kind === 'note' || d.kind === 'artifact') && isReaction(d.text) && !d.images.length).length
@@ -528,6 +557,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
   const answers = drafts.filter((d) => d.kind === 'answer').length
   const dismissed = drafts.filter((d) => d.kind === 'dismiss').length
   const done = drafts.filter((d) => d.kind === 'done').length
+  const checks = drafts.filter((d) => d.kind === 'check').length
   const [sending, setSending] = useState(false)
   const busy = m.status === 'working' || m.status === 'permission'
   // Sending while questions or items are still open warns once; sending again
@@ -546,6 +576,8 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
   const mine = isCommand ? 1 : queuedParts(m.id).length
   const held = isCommand ? 0 : [...(m.held ?? []), ...othersLive(m)].reduce((a, h) => a + h.parts.length, 0)
   const n = mine + held
+  // The agent said the task is done (<task-done/>): Cmd+Enter with nothing to send archives the session.
+  const archivable = !!m.taskDone && m.kind === 'worker' && !m.archived && !busy && !n && !c.text.trim() && !c.images.length
   // A send that would re-cache a big, expired context waits for "Send anyway" in the bar above.
   const now = useNow()
   const cache = cacheOf(m, now)
@@ -565,12 +597,21 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
       } else await sendQueued(m.id, open.map((i) => ({ key: i.key, label: i.label })))
     } finally { setSending(false) }
   }
+  // Cmd+Enter in a reply box (a comment, an answer) sends as this Send button does.
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    const go = () => void sendRef.current()
+    senders.set(m.id, go)
+    return () => { if (senders.get(m.id) === go) senders.delete(m.id) }
+  }, [m.id])
   return (
     <div className="composer">
       <RunningTasks sid={m.id} />
+      {asks.length > 0 && <div className="inbox">{asks.map(({ to, mail }) => <ArchiveAsk key={mail.id} to={to} x={mail} />)}</div>}
       <Inbox m={m} />
       <Held m={m} />
-      {(!!m.mail?.length || notes > 0 || verdicts > 0 || reactions > 0 || answers > 0 || dismissed > 0 || done > 0 || open.length > 0) && (
+      {(!!m.mail?.length || notes > 0 || verdicts > 0 || reactions > 0 || answers > 0 || dismissed > 0 || done > 0 || checks > 0 || open.length > 0) && (
         <div className="queue">
           <Mailbox m={m} />
           {verdicts > 0 && <span className="chip static">{verdicts} {verdicts === 1 ? 'verdict' : 'verdicts'}</span>}
@@ -578,6 +619,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
           {reactions > 0 && <span className="chip static">{reactions} {reactions === 1 ? 'reaction' : 'reactions'}</span>}
           {answers > 0 && <span className="chip static">{answers} {answers === 1 ? 'answer' : 'answers'}</span>}
           {done > 0 && <span className="chip static">{done} done</span>}
+          {checks > 0 && <span className="chip static">{checks} {checks === 1 ? 'tick' : 'ticks'}</span>}
           {dismissed > 0 && <DismissedChip sid={m.id} />}
           {open.length > 0 && <button className={`chip open-chip${warned ? ' warn' : ''}`} onClick={() => revealItem(open[0].key)}>{open.length} open</button>}
         </div>
@@ -588,7 +630,7 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
             <b>The prompt cache expired {minutes(-(cache.left ?? 0))} ago.</b> This message writes {kTokens(m.context.used)} tokens to the cache again.{' '}
             That costs about <button className="link" title="Show as dollars or % of 5-hour or weekly limit" onClick={toggleMoney}><b>{moneyLong(cache.dollars.cold)}</b></button>
             {state.money !== 'usd' && shareOf(cache.dollars.cold) != null && limitLeft() != null && <> ({pct(limitLeft()!)} left)</>}, about {cache.times}× a message sent while the cache is warm ({moneyLong(cache.dollars.warm)}).
-            {state.money !== 'usd' && shareOf(cache.dollars.cold) == null && <> Codinger is still measuring how much of your usage limit that is.</>}
+            {state.money !== 'usd' && shareOf(cache.dollars.cold) == null && <> workwith is still measuring how much of your usage limit that is.</>}
           </span>
           <button className="primary" disabled={sending} onClick={() => void send(true)}>Send anyway</button>
         </div>
@@ -600,11 +642,14 @@ export function Composer({ m, attachRef }: { m: SessionMeta; attachRef?: React.R
           onChange={(text) => setComposer(m.id, { text })}
           images={c.images}
           onImages={(images) => setComposer(m.id, { images })}
-          placeholder={m.kind === 'lead' ? 'Message the lead' : `Message ${agentName()}`}
+          placeholder={archivable ? `Hit ${MOD}+Enter with this blank, to archive it` : m.kind === 'lead' ? 'Message the lead' : `Message ${agentName()}`}
           // A session you open is ready to type in; on a touch screen the keyboard would cover it.
           autoFocus={!matchMedia('(pointer: coarse)').matches}
           onSubmit={() => send()}
-          onKey={slash.onKey}
+          onKey={(e) => {
+            if (archivable && e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.altKey) { void closeSession(m.id); return true }
+            return slash.onKey(e)
+          }}
           minRows={1}
           machine={machineOf(m.id)}
           uploadDir={m.cwd}

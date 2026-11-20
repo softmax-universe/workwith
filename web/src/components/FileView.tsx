@@ -259,7 +259,7 @@ function DiffLines({ hunks, me, all, names, lang: l, wrap, notes, link }: { hunk
   const rows: Row[] = []
   const size = hunks.reduce((t, h) => t + h.rows.reduce((u, r) => u + r.text.length, 0), 0)
   const hl = (s: string) => htmlLines(highlight(s, size > HIGHLIGHT_MAX ? undefined : l))[0] ?? ''
-  const label = (who: string | null | undefined) => who ? names.get(who)?.title ?? 'Another session' : 'Codinger does not know who changed these lines'
+  const label = (who: string | null | undefined) => who ? names.get(who)?.title ?? 'Another session' : 'workwith does not know who changed these lines'
   const tone = (who: string | null | undefined) => who === me ? ' who-me' : who === 'you' ? ' who-you' : who ? ` who-${(names.get(who)?.n ?? 0) % 6}` : ''
   for (const h of hunks) {
     rows.push({ cls: 'hunk', nums: ['', ''], html: escapeHtml(h.head) })
