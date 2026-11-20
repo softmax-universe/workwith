@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>synth-desk: the rest of the agent, at its desk</title>
+<style>
+  :root { --ink: #1d2422; --muted: #5d6965; --line: #d9e0dd; --card: #f6f8f7; --accent: #0f4a44; --warn: #b23a2e; --busy: #c98a1a; --ok: #3f8f5f; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #e4ebe8; --muted: #9aa8a3; --line: #2f3a37; --card: #1b2321; --accent: #6fc2b6; --warn: #e07a6e; } body { background: #121816; } }
+  body { font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); max-width: 820px; margin: 0 auto; padding: 40px 22px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 42px 0 10px; color: var(--accent); }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .lede { font-size: 18px; color: var(--muted); margin: 0 0 24px; }
+  code { font: 13.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); padding: 1px 5px; border-radius: 4px; }
+  pre { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: pre-wrap; }
+  pre code { background: none; padding: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .meta a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .03em; }
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 10px; align-items: center; margin: 18px 0; }
+  .box { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .box b { display: block; margin-bottom: 2px; }
+  .arrow { color: var(--muted); font-size: 20px; text-align: center; }
+  @media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); } }
+  /* A static copy of the sidebar panel (StatusPanel.tsx), for the picture. */
+  .panel { width: 280px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); font-size: 12.5px; margin: 14px 0; }
+  .panel-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .panel-sum { flex: 1; }
+  .panel-warn { padding: 0 9px 7px; color: var(--warn); }
+  .panel-body { padding: 0 9px 8px; }
+  .panel-h { margin-top: 6px; font-weight: 600; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .row span:last-child { color: var(--muted); }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>The rest of the agent, at its desk</h1>
+<p class="lede">What the <code>synth-desk</code> branch adds to Workwith, and why an agent with a persistent identity needs it.</p>
+<div class="meta">
+  <span>Branch <a href="https://github.com/softmax-universe/workwith/tree/synth-desk"><code>synth-desk</code></a></span>
+  <span>Try it: <a href="https://workwith2.synth.softmax-agents.com">workwith2.synth.softmax-agents.com</a></span>
+  <span>About 150 lines, in 5 files. It is off unless an agent turns it on.</span>
+</div>
+
+<h2>The problem</h2>
+<p>Codinger, and Workwith after it, was built for one person on a laptop who starts short-lived Claude sessions. Each session is the only thing at work in its folder, as far as it knows.</p>
+<p>Synth is different. Many parts of one agent run at the same time, in the same checkout:</p>
+<ul>
+  <li>about a dozen <b>routines</b> on systemd timers, some of which commit and push <code>main</code> every 30 minutes;</li>
+  <li>a <b>Slack listener</b> that answers DMs;</li>
+  <li><b>sessions on other desks</b> (the main Workwith and this trial one).</li>
+</ul>
+<p>A session at the desk could not see any of these parts. It could commit while a routine was halfway through a rebase. It could restart a service that the listener depends on. It could also miss a failed unit that was right in front of it. Its only defence was a line in <code>AGENTS.md</code> that said "check <code>pgrep</code> first", and sessions forgot it.</p>
+
+<h2>The change: one generic hook</h2>
+<p>Workwith does not know anything about Synth's routines, and it should not. Instead, the agent names a command, and Workwith runs it and shows its output:</p>
+<pre><code>CODINGER_AGENT_STATUS='python3 /var/lib/cubid/scripts/desk_status.py'</code></pre>
+
+<div class="flow">
+  <div class="box"><b>The agent's command</b>The agent's own script. It knows its own routines, listeners and desks.</div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Workwith, every 15 s</b><code>server/agentstatus.ts</code> runs it and keeps the last good answer.</div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Two places</b>Each message to Claude carries the text. The sidebar panel shows the summary.</div>
+</div>
+
+<h3>What the command prints</h3>
+<p>The command prints JSON. Only <code>text</code> is required, and plain text also works: all of it goes to Claude, and its first line becomes the summary.</p>
+<pre><code>{
+  "text":     "Routines running now: none.\n…",   // goes to Claude with every message
+  "summary":  "Next: hourly-data-refresh 12:17 PM", // one line in the sidebar
+  "busy":     false,                             // true: the dot pulses amber
+  "warn":     "Failed: synth-meetings-scan.service",
+  "sections": [{ "title": "Routines", "rows": [["pick-up-work", "last 12:12 · next 12:42"]] }]
+}</code></pre>
+
+<h3>What Claude sees</h3>
+<p>Each message gets a hidden block, next to the "task ended" notes that Workwith already sends. Sessions see it, and the lead sees it below its board:</p>
+<pre><code>[Desk status, 4s old]
+Routines running now: none.
+Starting in the next 15 min: hourly-data-refresh at 12:17 PM, github-app-token at 12:30 PM.
+Failed units: synth-meetings-scan.service.
+/var/lib/cubid on main: 0 ahead, 0 behind upstream, 4 modified tracked files. Last commit: …
+Slack listener: up.
+Sessions at my other desks: "repo-privacy" (asking, workwith), …</code></pre>
+<p>A short section of the system prompt (only when the hook is set) says what the block is: the server writes it, not the user. It also says to read the block before committing, pushing or restarting anything, and not to repeat it back.</p>
+
+<h3>What you see</h3>
+<p>The panel sits under the agent's name. It is one line until you open it:</p>
+<div class="panel">
+  <div class="panel-head"><span class="dot"></span><span class="panel-sum">Next: hourly-data-refresh 12:17 PM</span><span>▾</span></div>
+  <div class="panel-warn">Failed: synth-meetings-scan.service</div>
+  <div class="panel-body">
+    <div class="row"><span>git main: 0↑ 0↓ · 4 modified</span></div>
+    <div class="panel-h">Routines</div>
+    <div class="row"><span>pick-up-work</span><span>last 12:12 · next 12:42</span></div>
+    <div class="row"><span>onboarding-refresh</span><span>last 12:07 · next 12:37</span></div>
+    <div class="row"><span>coherence</span><span>last 0:00 · next 0:00</span></div>
+  </div>
+</div>
+
+<h2>Files</h2>
+<table>
+  <tr><th>File</th><th>What it does</th></tr>
+  <tr><td><code>server/agentstatus.ts</code></td><td>New. Runs the command (10 s timeout, 1 MB cap), parses its output, holds the latest answer, and builds the hidden block and the prompt section.</td></tr>
+  <tr><td><code>server/index.ts</code></td><td>Adds the block in <code>hiddenFor()</code> and the prompt section to the worker prompt. Adds <code>GET /api/agent-status</code>.</td></tr>
+  <tr><td><code>web/src/components/StatusPanel.tsx</code></td><td>New. The sidebar panel, which polls every 20 s.</td></tr>
+  <tr><td><code>web/src/components/Sidebar.tsx</code>, <code>styles.css</code></td><td>Puts the panel under the agent's name, and styles it. The pulse stops when the system asks for reduced motion.</td></tr>
+</table>
+<p>Synth's side lives in its own repo: <code>scripts/desk_status.py</code> (the command, about 0.1 s per run, read-only) and <code>scripts/workwith2.sh</code> (runs this branch on port 4548).</p>
+
+<h2>Choices</h2>
+<ul>
+  <li><b>It is a command, not a plugin API.</b> Any agent can write one in any language. Workwith does not need to know about systemd, git or Slack.</li>
+  <li><b>It is off by default.</b> When the variable is not set, there is no panel, no block and no prompt text. Laptop users see no change.</li>
+  <li><b>It fails soft.</b> When the command errors or hangs, Workwith keeps the last good answer and shows its age ("4s old"), so a stale snapshot is easy to see.</li>
+  <li><b>The probe runs in the background.</b> A message never waits for the command.</li>
+  <li><b>It sends a fresh snapshot with every message, not a diff.</b> This costs about 100 tokens per message. A diff would be smaller, but Claude would have to track state across turns.</li>
+</ul>
+
+<h2>History</h2>
+<p class="note">October: the first version was a full fork of Codiner (<code>desk/</code> in agent-synth). It had its own tailnet listener and guardian check, because the agent could not edit Caddy then. Workwith has since gained agent names, avatars, guardian sign-in and signed messages, so most of that fork is no longer needed. This branch keeps only what Workwith still lacks.</p>
+
+<h2>Open questions</h2>
+<ul>
+  <li>Should this go upstream to Workwith <code>main</code>? It is generic. The name <code>CODINGER_AGENT_STATUS</code> and the JSON shape are the parts to agree on first.</li>
+  <li>agents-toolkit could render the variable from <code>agent.toml</code> (for example <code>[workwith] status = "scripts/desk_status.py"</code>). Then the main desk would get it with no separate trial desk.</li>
+  <li>Should sessions be able to <em>ask</em> for a fresh status as a tool, in addition to receiving it with each message?</li>
+</ul>
+
+</body>
+</html>
