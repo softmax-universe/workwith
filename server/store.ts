@@ -97,11 +97,18 @@ export function saveSessions(all: () => SessionMeta[]) {
   }, 200)
 }
 
+// Settings this checkout gives every desk that runs it, under the desk's own (workwith.json
+// at the root): the issues repo, so each desk on main can file issues with no setup.
+// A desk turns one off with null in its own settings ("issues": null).
+function checkoutDefaults(): Partial<Settings> {
+  try { return JSON.parse(fs.readFileSync(new URL('../workwith.json', import.meta.url), 'utf8')) } catch { return {} }
+}
+
 export function loadSettings(): Settings {
-  try {
-    const { masterAutoSend, ...s } = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'))
-    return { leadAutoSend: masterAutoSend ?? false, ...s }
-  } catch { return { leadAutoSend: false } }
+  let own: Record<string, unknown> = {}
+  try { own = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch { /* none yet */ }
+  const { masterAutoSend, ...s } = { ...checkoutDefaults(), ...own } as Settings & { masterAutoSend?: boolean }
+  return { ...s, leadAutoSend: (s.leadAutoSend ?? masterAutoSend ?? false) as boolean }
 }
 export function saveSettings(s: Settings) { fs.writeFileSync(SETTINGS, JSON.stringify(s, null, 1)) }
 

@@ -74,7 +74,7 @@ let state: State = { jobs: {}, pushes: [] }
 let ticking = false
 let gateChain: Promise<unknown> = Promise.resolve()
 
-const cfg = (): IssuesConfig | undefined => ctx?.settings().issues
+const cfg = (): IssuesConfig | undefined => ctx?.settings().issues ?? undefined
 const opt = <K extends keyof typeof DEFAULTS>(k: K): number => Number(cfg()?.[k] ?? DEFAULTS[k])
 
 function save() { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(STATE, JSON.stringify(state, null, 1)) }

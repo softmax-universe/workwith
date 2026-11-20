@@ -258,10 +258,11 @@ export type Settings = {
   // with it set, the Report button and the file_issue tool file there. loop: this desk works
   // on them. owners: logins (proxy or GitHub) whose straightforward issues ship by themselves.
   // codeRepo: the code's repo, for links. checkout: the clone that worktrees come from.
+  // Unset: workwith.json's (server/store.ts); null: no issues on this desk.
   issues?: {
     repo: string; loop?: boolean; owners?: string[]; codeRepo?: string; checkout?: string
     dailyPushes?: number; issueUsd?: number; maxDiff?: number; parallel?: number
-  }
+  } | null
 }
 
 // What a page tells its server over the socket: the session it shows while it is in view (null: none).
