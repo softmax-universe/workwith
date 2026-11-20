@@ -992,6 +992,7 @@ h1.rename { cursor: text; border-radius: 5px; } h1.rename:hover { background: rg
 .signin.restart > span:first-child { flex: 1 1 320px; }
 .signin .banner-btns { display: flex; gap: 8px; margin-left: auto; }
 .update-remember { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.signin .update-remember input { width: auto; }
 .signin.st-failed { background: rgba(229, 83, 75, .1); border-bottom-color: var(--bad); }
 .signin input { width: 220px; font-size: calc(12.5px * var(--fs, 1)); }
 .rich-input .attach { position: absolute; right: 7px; top: 7px; cursor: pointer; opacity: .55; line-height: 0; }
@@ -1833,6 +1834,20 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .dir-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: -2px; line-height: 1; }
 .dir-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 3px; }
 .dir-menu-path { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* What's new (ChangelogDialog.tsx), and the update banner's note of what this desk asked for. */
+.changelog-modal { display: flex; flex-direction: column; width: min(720px, 94vw); max-height: 86vh; }
+.changelog-body { overflow-y: auto; padding-right: 4px; }
+.changelog-body h3 { font-size: calc(12px * var(--fs, 1)); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+.changelog-body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.changelog-body li { line-height: 1.45; }
+.changelog-pending h3 { color: var(--accent); }
+.changelog-body li.asked-here { list-style: none; margin-left: -18px; padding: 6px 10px; border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); border-radius: 4px; }
+.change-issue { margin-left: 6px; font-size: calc(12px * var(--fs, 1)); color: var(--muted); white-space: nowrap; }
+.change-issue.here { display: block; margin: 4px 0 0; color: var(--ok); font-weight: 600; white-space: normal; }
+.settings-news { align-self: flex-start; margin-bottom: 4px; }
+.update-asked { flex-basis: 100%; color: var(--ok); font-weight: 600; }
+.update-asked a { color: inherit; }
 
 /* The Report dialog (ReportDialog.tsx). */
 .report-modal { display: flex; flex-direction: column; gap: 10px; width: min(560px, 92vw); }

@@ -16,6 +16,7 @@ import { closeLinkedNew, initUrl, linkedNew } from './url.ts'
 import { NewSession } from './components/NewSession.tsx'
 import { Lightbox } from './components/Lightbox.tsx'
 import { Palette } from './components/Palette.tsx'
+import { ChangelogDialog } from './components/ChangelogDialog.tsx'
 import { PhoneSetup } from './components/PhoneSetup.tsx'
 import { useCritterIcons } from './critterIcon.tsx'
 import './push.ts'
@@ -83,11 +84,21 @@ function Update() {
   const [closed, setClosed] = useState(() => localStorage.getItem('codinger.updateClosed'))
   // The first time it asks: your answer can stand for next time too (Settings → Updates from GitHub).
   const [remember, setRemember] = useState(true)
+  const [news, setNews] = useState(false)
   if (!u || u.state === 'current' || (closed === u.head && u.state !== 'updating')) return null
   const subject = u.subject.length > 90 ? u.subject.slice(0, 88) + '…' : u.subject
   const what = `A workwith update is ready (${u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “${subject}”).`
   const close = () => { localStorage.setItem('codinger.updateClosed', u.head); setClosed(u.head) }
   const agent = () => { const m = currentMachine(); void api<SessionMeta>('/api/update/agent', 'POST', undefined, m).then((s) => select(globalId(m, s.id))) }
+  // The issues this desk filed that the update builds (server/loop.ts issuesOf), and What's new.
+  const asked = u.asked?.length ? <span className="update-asked" data-pid="update-asked">
+    {u.asked.length === 1 ? 'It has what this desk asked for: ' : `It has ${u.asked.length} things this desk asked for: `}
+    {u.asked.map((i, k) => <span key={i.n}>{k > 0 && ', '}<a href={i.url} target="_blank" rel="noreferrer">{i.title}</a></span>)}
+  </span> : null
+  const more = <>
+    <button className="link" onClick={() => setNews(true)} data-pid="update-news">What's new</button>
+    {news && <ChangelogDialog onClose={() => setNews(false)} />}
+  </>
   if (u.state === 'offer') {
     const answer = (yes: boolean) => {
       if (remember) void api('/api/settings', 'PUT', { autoUpdate: yes ? 'always' : 'never' })
@@ -97,9 +108,11 @@ function Update() {
     return (
       <div className="signin restart">
         <span>workwith on GitHub has an update ({u.behind === 1 ? '1 new commit' : `${u.behind} new commits`}, latest: “{subject}”). Install it and restart?</span>
+        {asked}
         <button className="primary" onClick={() => answer(true)}>Update</button>
         <button onClick={() => answer(false)}>Not now</button>
         <label className="update-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember my choice</label>
+        {more}
       </div>
     )
   }
@@ -115,6 +128,8 @@ function Update() {
             ? <button className="primary" onClick={() => void api('/api/update/now', 'POST')}>Try again</button>
             : <button className="primary" onClick={agent}>Ask an agent to update</button>}
         </>}
+      {asked}
+      {more}
       {u.state !== 'updating' && <button className="link" onClick={close}>Not now</button>}
     </div>
   )

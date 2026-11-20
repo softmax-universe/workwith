@@ -21,6 +21,7 @@ import { DEFAULT_CACHE_GUARD } from '../../../shared/cache.ts'
 import { KEEP_WARM } from '../../../shared/notes.ts'
 import { disablePush, enablePush, pushSubscribed, pushSupported } from '../push.ts'
 import { AsksPanel } from './AsksPanel.tsx'
+import { ChangelogDialog } from './ChangelogDialog.tsx'
 
 const GUARDS = [0, 20_000, 50_000, 100_000, 250_000, 500_000]
 const WARM_HOURS = [0, 1, 2, 4, 6, 8, 12, 16, 24]
@@ -60,6 +61,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
   const page: Page = PAGES.find(([p]) => p === st.settingsPage)?.[0] ?? 'general'
   const go = (p: Page) => { localStorage.setItem('codinger.settingsPage', p); state.settingsPage = p; changed() }
   const guard = st.settings.cacheGuard ?? DEFAULT_CACHE_GUARD
+  const [news, setNews] = useState(false)     // What's new (ChangelogDialog.tsx)
   const [stale, setStale] = useState(false)   // the server predates file history: it needs a restart
   const loadFiles = () => api<FileRow[]>('/api/files', 'GET')
     .then((f) => { setFiles(f); setSel((s) => s || f[0]?.path || '') })
@@ -184,6 +186,8 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
             </div>
             <div className="settings-group">
               <h3 className="cost-h">Updates and restarts</h3>
+              <button className="link settings-news" onClick={() => setNews(true)} data-pid="settings-news">What's new in workwith</button>
+              {news && <ChangelogDialog onClose={() => setNews(false)} />}
               <label className="settings-check">
                 Updates from GitHub
                 <select value={st.settings.autoUpdate ?? 'ask'} onChange={(e) => void api('/api/settings', 'PUT', { autoUpdate: e.target.value })}>

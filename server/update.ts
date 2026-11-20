@@ -15,7 +15,7 @@
 
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
-import type { UpdateMode, UpdateStatus } from '../shared/update.ts'
+import type { Change, IssueRef, UpdateInfo, UpdateMode, UpdateStatus } from '../shared/update.ts'
 import { codingerEnv } from './oldenv.ts'
 
 const STATUS_FILE = codingerEnv('UPDATE_STATUS')
@@ -25,7 +25,11 @@ const MANAGED = !!(STATUS_FILE && REQUEST_FILE)
 const EVERY = 10 * 60_000
 const WIN = process.platform === 'win32'
 
-type Opts = { root: string; mode: () => UpdateMode; busy: () => boolean; restart: () => void; onChange: (u: UpdateStatus) => void }
+type Opts = {
+  root: string; mode: () => UpdateMode; busy: () => boolean; restart: () => void; onChange: (u: UpdateStatus) => void
+  // The issues a commit message names (server/loop.ts issuesOf).
+  issues: (message: string) => Promise<IssueRef[]>
+}
 let o: Opts | null = null
 let status: UpdateStatus = { state: 'current' }
 let checking = false
@@ -72,10 +76,12 @@ async function check(fetch: boolean) {
     if (fetch) await git('fetch', '-q', 'origin', 'main')
     const [head, remote] = await Promise.all([git('rev-parse', 'HEAD'), git('rev-parse', 'origin/main')])
     if (head === remote || await ancestor(remote, head)) return set({ state: 'current' })
-    const info = {
+    const asked = (await o.issues(await git('log', '--format=%B', 'HEAD..origin/main').catch(() => ''))).filter((i) => i.here)
+    const info: UpdateInfo = {
       behind: Number(await git('rev-list', '--count', 'HEAD..origin/main')),
       head: remote.slice(0, 7),
       subject: await git('log', '-1', '--format=%s', 'origin/main'),
+      ...(asked.length ? { asked } : {}),
     }
     if (mode === 'ask') return set({ state: 'offer', ...info })
     const why = await blocker()
@@ -110,7 +116,7 @@ async function managedCheck() {
   } finally { checking = false }
 }
 
-function request(info: { behind: number; head: string; subject: string; managed?: true }) {
+function request(info: UpdateInfo) {
   try {
     fs.writeFileSync(REQUEST_FILE!, `${new Date().toISOString()} ${info.head}\n`)
     asked = Date.now()
@@ -129,7 +135,7 @@ async function blocker(): Promise<string | null> {
   return null
 }
 
-async function apply(info: { behind: number; head: string; subject: string }) {
+async function apply(info: UpdateInfo) {
   set({ state: 'updating', ...info })
   try {
     const old = await git('rev-parse', 'HEAD')
@@ -169,4 +175,19 @@ export function updatePrompt(): string {
     'Bring it up to date with origin/main without losing local work: look at what is uncommitted or unpushed and which session it belongs to (list_sessions), ' +
     'and ask me before you discard, stash or rewrite anything. Run `npm install` if package.json or package-lock.json changed. ' +
     'Then restart Codinger with its own restart (POST /api/restart on this server).'
+}
+
+// What's new: the last commits of origin/main (or of this checkout, when it has no
+// origin/main), newest first, with the ones not installed yet marked. None when this is
+// not a git checkout (a managed release can be one).
+export async function changelog(limit = 150): Promise<Change[]> {
+  if (!o) return []
+  if (!await git('rev-parse', '--git-dir').then(() => true, () => false)) return []
+  const tip = await git('rev-parse', '--verify', '-q', 'origin/main').then(() => 'origin/main', () => 'HEAD')
+  const pending = new Set((await git('rev-list', 'HEAD..' + tip).catch(() => '')).split('\n').filter(Boolean))
+  const log = await git('log', '--no-merges', '-n', String(limit), '--format=%H%x1f%ct%x1f%B%x1e', tip)
+  return Promise.all(log.split('\x1e').map((r) => r.trim()).filter(Boolean).map(async (r) => {
+    const [hash, at, message] = r.split('\x1f')
+    return { hash: hash.slice(0, 7), at: Number(at) * 1000, subject: message.split('\n')[0], installed: !pending.has(hash), issues: await o!.issues(message) }
+  }))
 }

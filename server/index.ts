@@ -45,7 +45,7 @@ import { backfillSubagentSpend } from './subspend.ts'
 import { ESTIMATE_TOOLS, backfillActive, estimateTools, estimatesPrompt, estimatesReply } from './estimates.ts'
 import { answered, askTools, asksReply, cancelAsk, forgetAsks, startAsks } from './asks.ts'
 import { forgetIcon, setIcon } from './icons.ts'
-import { fileIssue, startLoop } from './loop.ts'
+import { fileIssue, issuesOf, startLoop } from './loop.ts'
 import { MAIL_TOOLS, flushMail, mailTools, release, startMail, stepped, takeMail, turnEnded, userWrote } from './mail.ts'
 import { AUTOPILOT_MODES, amount, nudge, startAutopilot, usedOf, verdict } from './autopilot.ts'
 import { blame, initFileHistory, moveHistory, noteEdit, record as recordVersion, versions } from './filehistory.ts'
@@ -54,7 +54,7 @@ import { CLAUDE, authState, cancelLogin, childEnv, initAuth, needed as authNeede
 import { FALLBACK, billingNote, limitHit, noLogin, onBilling, onPlan, sessionEnv } from './billing.ts'
 import { deviceType, findDevice } from './device.ts'
 import { remoteCancelLink, remoteForget, remoteHub, remoteLink, remoteName, remoteOn, remoteNotify, remoteProxy, remoteStatus, remoteUpgrade, startRemote } from './remote.ts'
-import { startUpdates, updateModeChanged, updateNow, updatePrompt, updatesManaged, updateStatus } from './update.ts'
+import { changelog, startUpdates, updateModeChanged, updateNow, updatePrompt, updatesManaged, updateStatus } from './update.ts'
 import {
   DATA, LEAD_DIR, LEAD_NOTES, OLD_LEAD_NOTES, appendEvent, deleteEvents, readEvents, expandHome, imageFile, knownWindow, leadRenamed, resolveModel, loadSessions, promptFile, loadSettings, saveImage, saveSessions, saveSettings,
 } from './store.ts'
@@ -1296,6 +1296,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     setTimeout(restart, 100)
     return
   }
+  // What's new: the commits of origin/main, with the issues they name.
+  if (a === 'changelog' && method === 'GET') return send(res, 200, await changelog())
   // The update from origin/main (server/update.ts): now, or by an agent in Codinger's own checkout.
   // An update runs git and npm, and the update agent a shell; a managed one (an updater outside
   // the server installs it) only writes a request file, and has no update agent.
@@ -2118,7 +2120,7 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Codinger on http://localhost:${PORT}${DEV ? ' (dev)' : ''}`)
   startPortShares()
   startRemote(PORT, artifactsPort, (remote) => broadcast({ type: 'remote', remote }))
-  startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }) })
+  startUpdates({ root: ROOT, mode: () => settings.autoUpdate ?? 'ask', busy: () => [...sessions.values()].some(busy), restart, onChange: (update) => broadcast({ type: 'update', update }), issues: issuesOf })
   findDevice((device) => broadcast({ type: 'device', device }))
   void backfillActive((sid) => sessions.get(sid)?.meta.claudeSessionId).catch(() => {})
 })

@@ -112,6 +112,29 @@ export async function fileIssue(o: { title: string; body: string; by: Person | n
   return out.trim().split('\n').pop()!
 }
 
+// The issues of the issues repo that a commit message names (`Issue: <repo>#<n>`, as the
+// loop's workers end theirs, or `Fixes <repo>#<n>`), each with its title, and whether this
+// desk filed it (the desk in its workwith-loop comment). A title does not change much: kept.
+const REF = /^(?:Issue|Fixes|Closes):?\s+([\w.-]+\/[\w.-]+)#(\d+)\s*$/gim
+const seen = new Map<string, Promise<{ title: string; here: boolean } | null>>()
+export async function issuesOf(message: string): Promise<{ n: number; title: string; url: string; here: boolean }[]> {
+  const repo = cfg()?.repo
+  if (!repo || !ctx) return []
+  const ns = [...new Set([...message.matchAll(REF)].filter((m) => m[1].toLowerCase() === repo.toLowerCase()).map((m) => Number(m[2])))]
+  const out = await Promise.all(ns.map(async (n) => {
+    const key = `${repo}#${n}`
+    if (!seen.has(key)) seen.set(key, gh(['issue', 'view', String(n), '-R', repo, '--json', 'title,body']).then((s) => {
+      const i = JSON.parse(s) as { title: string; body: string }
+      let desk: unknown = null
+      try { desk = JSON.parse(META.exec(i.body ?? '')?.[1] ?? 'null')?.desk } catch { /* not ours */ }
+      return { title: i.title, here: desk === ctx.desk }
+    }, () => { seen.delete(key); return null }))
+    const i = await seen.get(key)!
+    return i && { n, title: i.title, url: `https://github.com/${repo}/issues/${n}`, here: i.here }
+  }))
+  return out.filter((i) => i != null)
+}
+
 // ---- the loop ----------------------------------------------------------------
 
 export function startLoop(c: LoopCtx) {
