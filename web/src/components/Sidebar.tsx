@@ -39,7 +39,7 @@ function tiers(list: SessionMeta[], same = (a: SessionMeta, b: SessionMeta) => a
 }
 // On a shut machine or group: how many sessions in it wait on you, as the tab's icon counts them.
 function NeedBadge({ list }: { list: SessionMeta[] }) {
-  const n = list.filter((s) => s.kind === 'worker' && !s.archived && (NEEDS_YOU.includes(s.status) || alertOf(s))).length
+  const n = list.filter((s) => s.kind === 'worker' && !s.archived && !s.dropped && (NEEDS_YOU.includes(s.status) || alertOf(s))).length
   return n > 0 ? <span className="need-badge">{Math.min(n, 99)}</span> : null
 }
 
@@ -536,7 +536,10 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
   const q = st.showArchived ? st.archiveQuery.trim().toLowerCase() : ''
   const byDir = st.showArchived && st.archiveByFolder
   const mineOnly = !st.showArchived && st.sideMine && !!st.me
-  const shown = (m?.sessions ?? []).filter((s) => s.kind === 'worker' && s.archived === st.showArchived && (!mineOnly || wroteIn(s, st.me)))
+  const all0 = (m?.sessions ?? []).filter((s) => s.kind === 'worker' && s.archived === st.showArchived && (!mineOnly || wroteIn(s, st.me)))
+  // Dropped for now: out of the groups, into the Overhang at the bottom (the archive shows them as it shows any).
+  const overhang = st.showArchived ? [] : all0.filter((s) => s.dropped).sort((a, b) => b.lastActivity - a.lastActivity)
+  const shown = st.showArchived ? all0 : all0.filter((s) => !s.dropped)
   const match = archiveMatch(q, shown.map((s) => ({ cwd: s.cwd, machine, title: s.title })))
   const workers = shown.filter((s) => match({ cwd: s.cwd, machine, title: s.title }))
   const tier = tiers(workers, (a, b) => byDir ? a.cwd === b.cwd : gid(a) === gid(b))
@@ -577,7 +580,7 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
     { label: 'Rename', run: () => { naming = g.id; changed() } },
     { label: 'Delete group', run: () => saveGroups(machine, groups.filter((x) => x.id !== g.id)) },
   ])
-  if (!sections.length) return q && (m?.sessions ?? []).some((s) => s.kind === 'worker' && s.archived) ? <div className="muted pad">No folder or session matches “{st.archiveQuery.trim()}”.</div> : null
+  if (!sections.length && !overhang.length) return q && (m?.sessions ?? []).some((s) => s.kind === 'worker' && s.archived) ? <div className="muted pad">No folder or session matches “{st.archiveQuery.trim()}”.</div> : null
   const dropOn = (g: string) => over === g || (headOver?.machine === machine && headOver.group === g)
   return <div className="groups" data-machine={machine}>{sections.map(({ g, list }) => {
     const shutKey = `group:${machine}:${g.id}`
@@ -643,7 +646,28 @@ function MachineTree({ machine, onNew, onMenu }: { machine: string; onNew(cwd: s
     )
   })}
     {!st.showArchived && <div data-group="+" className={`new-group${dropOn('+') ? ' drop' : ''}`} role="button" onClick={() => newGroup(machine)}>+ New group</div>}
+    {overhang.length > 0 && <Overhang machine={machine} list={overhang} onMenu={onMenu} />}
   </div>
+}
+
+// The sessions you dropped for now: open loops you chose to let go of, not work that waits on
+// you. Shut until you open it; no badges, no counts in red. Its open state is kept as
+// `overhang:<machine>` in collapsed, so that it starts shut.
+function Overhang({ machine, list, onMenu }: { machine: string; list: SessionMeta[]; onMenu(e: React.MouseEvent, items: MenuItem[]): void }) {
+  const st = useStore()
+  const key = `overhang:${machine}`
+  const open = st.collapsed.includes(key)
+  const toggle = () => { state.collapsed = open ? state.collapsed.filter((n) => n !== key) : [...state.collapsed, key]; changed() }
+  return (
+    <div className={`group overhang${open ? '' : ' shut'}`} data-pid="overhang">
+      <div className="group-head fixed" onClick={toggle} title="Sessions you dropped for now. Pick one up when it feels alive again.">
+        <ChevronIcon size={11} className="group-chevron" />
+        <span className="group-name">Overhang</span>
+        <span className="group-count">{list.length}</span>
+      </div>
+      {open && list.map((s) => <Row key={s.id} s={s} active={st.selected === s.id} onMenu={onMenu} />)}
+    </div>
+  )
 }
 
 // A group's name as you type it: Enter or a click elsewhere keeps it, Escape does not.
@@ -675,6 +699,9 @@ function Row({ s, depth = 0, active, label, folder = true, onPointerDown, onMenu
       {!!s.pendingCritical && <span className="count critical" data-tip="Critical items" data-tip-at="right">{s.pendingCritical}</span>}
       {asks > 0 && <span className="count held" data-tip="Asks to write to an archived session" data-tip-at="right">{asks}</span>}
       {s.inbox.length > 0 && <span className="count" title="Drafts from the lead">{s.inbox.length}</span>}
+      {s.kind === 'worker' && !s.archived && s.dropped && (
+        <span className="row-close row-pickup" role="button" title="Pick up again" onClick={(e) => { e.stopPropagation(); void api(`/api/sessions/${s.id}`, 'PATCH', { dropped: false }) }}>↩</span>
+      )}
       {s.kind === 'worker' && !s.archived && (
         <span className="row-close" role="button" title="Archive session" onClick={(e) => { e.stopPropagation(); void closeSession(s.id) }}><XIcon size={12} /></span>
       )}
@@ -694,7 +721,8 @@ function rowItems(s: SessionMeta): MenuItem[] {
   if (s.kind !== 'worker') return [read]
   const groups = groupsOf(machine).filter((g) => g.id !== s.group)
   const star: MenuItem = { label: s.starred ? 'Remove star' : 'Star', run: () => api(`/api/sessions/${s.id}`, 'PATCH', { starred: !s.starred }) }
-  return [read, star, ...(machine === LOCAL ? ['line' as const, ...iconItems(s)] : []), 'line', { head: 'Move to' },
+  const drop: MenuItem[] = s.archived ? [] : [{ label: s.dropped ? 'Pick up again' : 'Drop for now', run: () => api(`/api/sessions/${s.id}`, 'PATCH', { dropped: !s.dropped }) }]
+  return [read, star, ...drop, ...(machine === LOCAL ? ['line' as const, ...iconItems(s)] : []), 'line', { head: 'Move to' },
     ...groups.map((g) => ({ label: g.name, run: () => moveToGroup(s, g.id) })),
     { label: 'New group', run: () => moveToGroup(s, newGroup(machine)) },
     ...(s.group && groupsOf(machine).some((g) => g.id === s.group) ? [{ label: 'No group', run: () => moveToGroup(s, NONE) }] : []),

@@ -237,6 +237,7 @@ function SessionMenu({ m, open, setOpen, onPublish }: { m: SessionMeta; open: Me
     </button>,
     worker && <button key="star" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { starred: !m.starred }))}>{m.starred ? 'Remove star' : 'Star'}</button>,
     worker && <button key="publish" onClick={act(onPublish)}>{m.share ? 'Published transcript' : 'Publish transcript'}</button>,
+    worker && !m.archived && <button key="drop" title={m.dropped ? 'Back among your sessions' : 'Let it go for now: to the Overhang, with no badges or pushes'} onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { dropped: !m.dropped }))}>{m.dropped ? 'Pick up again' : 'Drop for now'}</button>,
     worker && !m.archived && <button key="close" title="Archive session" onClick={act(() => closeSession(m.id))}>Close</button>,
     worker && m.archived && <button key="reopen" onClick={act(() => api(`/api/sessions/${m.id}`, 'PATCH', { archived: false }))}>Reopen</button>,
     worker && m.archived && <button key="delete" className="danger" title="Remove from workwith (it stays in Resume)" onClick={act(() => { if (confirm(`Delete "${m.title}" from workwith? Claude Code's own transcript is kept, so you can still find it under Resume.`)) return api(`/api/sessions/${m.id}`, 'DELETE').then(deselect) })}>Delete</button>,

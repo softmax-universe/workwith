@@ -80,7 +80,7 @@ export function useFavicon(sessions: SessionMeta[], appearance: Appearance | und
   const live = sessions.filter((s) => !s.archived)
   const last = live.filter((s) => s.started).sort((a, b) => b.lastActivity - a.lastActivity)[0]
   // Workers only: the lead is hidden, so its status would count something you cannot see.
-  const count = live.filter((s) => s.kind === 'worker' && NEEDS_YOU.includes(s.status)).length
+  const count = live.filter((s) => s.kind === 'worker' && !s.dropped && NEEDS_YOU.includes(s.status)).length
   // The count stands in for the critter's own badge ('idle' has none).
   const props: React.ComponentProps<typeof Mascot> = last
     ? { status: last.status, look: last.look, fatigue: fatigue(last.context.used, last.context.window), alert: 'idle' }

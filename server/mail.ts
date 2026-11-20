@@ -225,6 +225,7 @@ export function mailTools(id: string): Tool[] {
         return workers().filter((x) => !x.archived || x.parentId === m.id).map((x) => ({
           id: x.id, title: x.title, cwd: x.cwd, status: x.status,
           ...(x.archived ? { archived: true } : {}),
+          ...(x.dropped ? { dropped: true } : {}),
           ...(x.id === m.id ? { you: true } : { is: relation(m, x) ?? (x.parentId && x.parentId === m.parentId ? 'sibling' : 'other') }),
           ...(x.parentId === m.id ? { context: `${Math.round(x.context.used / 1000)}k of ${Math.round(x.context.window / 1000)}k tokens`, cache: cacheOf(x) } : {}),
           parent: x.parentId, children: childrenOf(x.id).filter((c) => !c.archived).map((c) => c.id),

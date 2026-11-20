@@ -237,7 +237,8 @@ function notifyOnChange(s: Session) {
   const was = lastStatus.get(m.id)
   lastStatus.set(m.id, m.status)
   const status = m.status
-  if (m.kind !== 'worker' || was !== 'working' || !NOTIFY[status]) return
+  // A session you dropped for now finishes quietly.
+  if (m.kind !== 'worker' || m.dropped || was !== 'working' || !NOTIFY[status]) return
   setTimeout(() => {
     if (m.status !== status) return
     // A page that shows the session marked the turn seen: 'asking' stays while asks are open.
@@ -1669,7 +1670,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       move(s.meta)
     }
     if (typeof body.starred === 'boolean' && s.meta.kind === 'worker') s.meta.starred = body.starred || undefined
-    if (typeof body.archived === 'boolean' && s.meta.kind === 'worker') { s.meta.archived = body.archived; if (body.archived) s.stop() }
+    if (typeof body.archived === 'boolean' && s.meta.kind === 'worker') { s.meta.archived = body.archived; s.meta.dropped = undefined; if (body.archived) s.stop() }
+    if (typeof body.dropped === 'boolean' && s.meta.kind === 'worker') s.meta.dropped = body.dropped || undefined
     if (MODES.includes(body.permissionMode)) {
       s.setPermissionMode(body.permissionMode)
       if (!AUTOPILOT_MODES.includes(body.permissionMode)) endAutopilot(s, 'you changed the permission mode')
@@ -1759,8 +1761,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (b === 'autopilot' && method === 'DELETE') { endAutopilot(s, 'you turned it off'); return send(res, 200, s.meta) }
   if (method !== 'POST') throw notFound()
   const body = await json(req)
-  // A message you send to an archived session takes it out of the archive.
-  const reopen = (s: Session) => { if (s.meta.archived) { s.meta.archived = false; metaChanged() } }
+  // A message you send to an archived or dropped session picks it up again.
+  const reopen = (s: Session) => { if (s.meta.archived || s.meta.dropped) { s.meta.archived = false; s.meta.dropped = undefined; metaChanged() } }
   switch (b) {
     case 'send': {
       const me = personOf(req)

@@ -152,6 +152,13 @@ body.resizing-v .splitter-v::after { background: var(--accent); }
 .row-close { visibility: hidden; color: var(--muted); padding: 3px; border-radius: 4px; line-height: 0; }
 .row:hover .row-close { visibility: visible; }
 .row-close:hover { color: var(--text); background: rgba(127, 127, 127, .18); }
+/* The Overhang: sessions dropped for now. Calm: no red edge, no bold, a little faded until you point at one. */
+.overhang { margin-top: 10px; }
+.overhang .row { opacity: .75; }
+.overhang .row:hover, .overhang .row.active { opacity: 1; }
+.overhang .row.alert { box-shadow: none; }
+.overhang .row.unread .row-title { font-weight: inherit; }
+.row-pickup { line-height: 1; font-size: calc(13px * var(--fs, 1)); }
 .count { background: var(--blue); color: #fff; border-radius: 9px; font-size: calc(11px * var(--fs, 1)); padding: 0 6px; }
 .count.pie { text-shadow: 0 0 2px rgba(0, 0, 0, .45); }
 .side-bottom { position: relative; }

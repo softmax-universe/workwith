@@ -206,7 +206,8 @@ function consider(s: Session, now: number) {
   if (now > expires - SEND_BY) return stop(m, 'The cache expired', expires)
   const idle = now - m.lastActivity
   const notes = ctx.settings().notes !== false && (n.upTo ?? 0) < m.lastActivity && idle >= NOTES_IDLE && m.context.used >= NOTES_MIN
-  if (!notes && now - at < PING_AT) return
+  // A dropped session gets its notes, for when you come back, but no keep-warm calls.
+  if (!notes && (now - at < PING_AT || m.dropped)) return
   const why = notes ? usageStop(m, 'notes') : keepWarmStop(m, idle)
   if (why) return stop(m, why, expires)
   void call(s, notes ? 'notes' : 'ping')
