@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { StatusPanel } from './StatusPanel.tsx'
+import { StatusLine } from './StatusPanel.tsx'
 import type { Person, SessionGroup, SessionMeta, Usage } from '../../../shared/types.ts'
 import { api, archiveAsksOf, changed, closeSession, showArchive, currentMachine, globalId, LOCAL, localId, machineList, machineOf, offline, select, setComposer, state, useStore, type Machine, labelOf, ROOT } from '../store.ts'
 import { HistoryDialog } from './HistoryDialog.tsx'
@@ -216,10 +216,9 @@ export function Sidebar({ width }: { width: number }) {
       {/* An agent's desk (server/agent.ts): its face and name over the sessions. */}
       {st.agent && <div className="brand">
         {st.agent.avatar && <img className="brand-avatar" src={`${ROOT}/agent/avatar`} alt="" />}
-        <span>{st.agent.name}</span>
+        <span className="brand-name">{st.agent.name}<StatusLine /></span>
       </div>}
       <HereNow />
-      {st.agent && <StatusPanel />}
       <div className="side-actions">
         <button className="primary" onClick={() => newSession({ cwd: '', machine: tab === 'local' ? LOCAL : others[0]?.name })}>+ New session</button>
         <button onClick={() => setHistory(true)} title={`Continue any Claude Code conversation on ${st.web ? currentMachine() : 'this machine'}, including terminal ones`}>Resume…</button>

@@ -1798,21 +1798,27 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .comment-offer { position: fixed; z-index: 50; transform: translate(6px, calc(-100% - 4px)); padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: calc(12.5px * var(--fs, 1)); box-shadow: 0 2px 8px rgba(0, 0, 0, .15); cursor: pointer; }
 .comment-offer:hover { border-color: var(--accent); color: var(--accent); }
 
-/* The rest of the agent (StatusPanel.tsx) */
-.agent-status { margin: 0 8px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); font-size: calc(12px * var(--fs, 1)); }
-.agent-status-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 7px; padding: 7px 9px; cursor: pointer; }
-.agent-status-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #4a9d6b; }
+/* The rest of the agent (StatusPanel.tsx): a line under the agent's name, and a dropdown over the sessions. */
+.brand { position: relative; }
+.brand-name { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.agent-status { font-weight: 400; letter-spacing: 0; font-size: calc(11.5px * var(--fs, 1)); }
+.agent-status-line { all: unset; box-sizing: border-box; max-width: 100%; display: flex; align-items: center; gap: 6px; margin-top: 1px; color: var(--muted); cursor: pointer; }
+.agent-status-line:hover, .agent-status-line[aria-expanded="true"] { color: var(--text); }
+.agent-status-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.agent-status-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-status-caret { flex: none; font-size: .85em; }
+.agent-status-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #4a9d6b; }
 .agent-status-dot.busy { background: #d79a2b; animation: agent-status-pulse 1.6s ease-in-out infinite; }
+.agent-status-dot.warn { background: #c0483a; }
 @keyframes agent-status-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .agent-status-dot.busy { animation: none; } }
-.agent-status-warn { padding: 0 9px 7px; color: #c0483a; }
-.agent-status-body { padding: 0 9px 8px; display: flex; flex-direction: column; gap: 3px; }
+.agent-status-drop { position: absolute; left: 8px; right: 8px; top: calc(100% + 6px); z-index: 30; max-height: 60vh; overflow-y: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .14); font-size: calc(12px * var(--fs, 1)); display: flex; flex-direction: column; gap: 3px; }
+.agent-status-warn { color: #c0483a; margin-bottom: 4px; }
 .agent-status-h { margin-top: 6px; font-weight: 600; }
+.agent-status-h:first-child { margin-top: 0; }
 .agent-status-row { display: flex; justify-content: space-between; gap: 8px; }
 .agent-status-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-status-row > span + span { flex: none; white-space: nowrap; }
-.agent-status-body { max-height: 45vh; overflow-y: auto; }
 
 /* A session's project icon (components/ProjectIcon.tsx): an image or an emoji, with the critter's badge.
    While it works an accent arc turns around it (in the rows and in the dock of icons below them). */
