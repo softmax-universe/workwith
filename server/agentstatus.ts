@@ -2,8 +2,9 @@
 // sessions here: jobs on timers in the same checkout, a chat listener, other desks. When
 // CODINGER_AGENT_STATUS names a command, Codinger runs it every 15 seconds and:
 //
-//   - adds its `text` to each message a session gets (hiddenFor in index.ts), so Claude knows
-//     what else of it is at work before it commits, pushes or restarts something;
+//   - adds its `text` to a session's next message when it changed since that session last heard
+//     (hiddenFor in index.ts), so Claude knows what else of it is at work before it commits,
+//     pushes or restarts something. Keep `text` to what calls for care, and empty when calm;
 //   - shows `summary`, `warn` and `sections` in a panel in the sidebar (StatusPanel.tsx).
 //
 // The command prints JSON: { text, summary?, busy?, warn?, sections?: [{ title, rows: [[label, value]] }] }.
@@ -64,20 +65,25 @@ if (COMMAND) {
 export const agentStatus = (): AgentStatus | null => latest
 export const hasAgentStatus = () => !!COMMAND
 
-// The block a session reads with each message, or '' when there is none.
-export function agentStatusText(): string {
-  if (!latest?.text) return ''
-  const age = Math.round((Date.now() - latest.at) / 1000)
-  return `[Desk status, ${age}s old]\n${latest.text}`
+// The block a session reads with a message: only when the text differs from what that session
+// last heard, so a calm desk adds nothing. An empty text after a non-empty one says "all clear"
+// once. Kept in memory: after a restart each session hears the current state once more.
+const heard = new Map<string, string>()
+export function agentStatusText(sid: string): string {
+  const text = latest?.text.trim() ?? ''
+  if (text === (heard.get(sid) ?? '')) return ''
+  heard.set(sid, text)
+  return text ? `[Desk status, changed]\n${text}` : '[Desk status] All clear: nothing that needs care is running or broken.'
 }
 
 // What a session learns about the block, only when there is a command.
 export const agentStatusPrompt = () => COMMAND ? `
 ## The rest of you
 You are not the only one of you at work. Other parts of you (jobs on timers, a chat listener,
-other sessions) may run in the same folder and push to the same branch. Each message may come
-with a "[Desk status]" block that says what is running now. The server adds it; the user did not
-write it. Before you commit, push, restart a service or rewrite a file another part of you
-touches, read it: if something is running or about to start, wait or tell the user. Do not
+other sessions) may run in the same folder and push to the same branch. When something that
+needs care changes (a job starts or finishes, a service fails), your next message comes with a
+"[Desk status]" block. The server adds it; the user did not write it. No block means no change
+since the last one you saw. Before you commit, push, restart a service or rewrite a file another
+part of you touches, check the latest block: if a job is running, wait or tell the user. Do not
 repeat the block back unless it matters.
 ` : ''

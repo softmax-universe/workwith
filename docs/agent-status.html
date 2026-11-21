@@ -83,15 +83,11 @@
 }</code></pre>
 
 <h3>What Claude sees</h3>
-<p>Each message gets a hidden block, next to the "task ended" notes that Workwith already sends. Sessions see it, and the lead sees it below its board:</p>
-<pre><code>[Desk status, 4s old]
-Routines running now: none.
-Starting in the next 15 min: hourly-data-refresh at 12:17 PM, github-app-token at 12:30 PM.
-Failed units: synth-meetings-scan.service.
-/var/lib/cubid on main: 0 ahead, 0 behind upstream, 4 modified tracked files. Last commit: …
-Slack listener: up.
-Sessions at my other desks: "repo-privacy" (asking, workwith), …</code></pre>
-<p>A short section of the system prompt (only when the hook is set) says what the block is: the server writes it, not the user. It also says to read the block before committing, pushing or restarting anything, and not to repeat it back.</p>
+<p>When the text changes, the session's next message gets a hidden block, next to the "task ended" notes that Workwith already sends. The lead gets it below its board. When nothing has changed, nothing is added, so a calm desk costs nothing. When a problem clears, the session hears "All clear" once.</p>
+<pre><code>[Desk status, changed]
+Routines running now: pick-up-work. Do not commit or push until they finish.
+Failed units: synth-meetings-scan.service.</code></pre>
+<p>A short section of the system prompt (only when the hook is set) says what the block is: the server writes it, not the user. It also says to check the latest block before committing, pushing or restarting anything, and not to repeat it back.</p>
 
 <h3>What you see</h3>
 <p>The panel sits under the agent's name. It is one line until you open it:</p>
@@ -123,7 +119,7 @@ Sessions at my other desks: "repo-privacy" (asking, workwith), …</code></pre>
   <li><b>It is off by default.</b> When the variable is not set, there is no panel, no block and no prompt text. Laptop users see no change.</li>
   <li><b>It fails soft.</b> When the command errors or hangs, Workwith keeps the last good answer and shows its age ("4s old"), so a stale snapshot is easy to see.</li>
   <li><b>The probe runs in the background.</b> A message never waits for the command.</li>
-  <li><b>It sends a fresh snapshot with every message, not a diff.</b> This costs about 100 tokens per message. A diff would be smaller, but Claude would have to track state across turns.</li>
+  <li><b>It speaks only on a change.</b> Workwith remembers what each session last heard and sends the block again only when the text differs. So the command's text should hold only what calls for care, worded to stay the same while nothing changes: running jobs and failures, not "next run at" times. The sidebar panel is where the full picture goes.</li>
 </ul>
 
 <h2>History</h2>

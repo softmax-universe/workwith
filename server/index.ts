@@ -493,7 +493,7 @@ function resumeHistory(claudeId: string): Session {
 // that ended stay unheard until a message that can carry them.
 function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string[] } {
   if (slashCommand(parts)) return {}
-  const status = agentStatusText()
+  const status = agentStatusText(s.meta.id)
   if (s.meta.kind === 'lead') return { hidden: [board(), status].filter(Boolean).join('\n\n') }
   const out: string[] = []
   if (status) out.push(status)
