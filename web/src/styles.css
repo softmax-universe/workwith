@@ -1811,6 +1811,8 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .agent-status-h { margin-top: 6px; font-weight: 600; }
 .agent-status-row { display: flex; justify-content: space-between; gap: 8px; }
 .agent-status-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-status-row > span + span { flex: none; white-space: nowrap; }
+.agent-status-body { max-height: 45vh; overflow-y: auto; }
 
 /* A session's project icon (components/ProjectIcon.tsx): an image or an emoji, with the critter's badge.
    While it works an accent arc turns around it (in the rows and in the dock of icons below them). */
