@@ -33,6 +33,7 @@ import { canShare, sharePort, startPortShares } from './ports.ts'
 import { allTasks, endText, logPath, markTold, readLog, removeTask, searchLog, startTask, startTasks, statusLine, stopTask, taskOf } from './tasks.ts'
 import type { Task, TaskNotify } from '../shared/types.ts'
 import { configsFor, probe, serversFor } from './mcpservers.ts'
+import { agentStatus, agentStatusPrompt, agentStatusText } from './agentstatus.ts'
 import { firstEmoji, iconFile, iconOf, iconType } from './projecticons.ts'
 import { canRead, guardedMessage, readable } from './guarded.ts'
 import { agentInfo, agentPage, ASK_NAME, BASE, DEFAULT_DIR, PROXIED, billing, desk, personOf, serveAgent } from './agent.ts'
@@ -308,7 +309,7 @@ function launchFor(meta: SessionMeta): () => Launch {
         // Artifacts live in one folder for every session (server/artifacts.ts).
         '--add-dir', ARTIFACTS,
       ],
-      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + (settings.issues?.repo ? issuesPrompt() : '') + agentsPrompt(),
+      prompt: WORKER_PROMPT + (settings.estimates !== false ? estimatesPrompt() : '') + lookPrompt(meta.look) + titlePrompt(meta) + mcpPrompt(meta) + artifactsPrompt() + agentStatusPrompt() + (PROXIED || remoteStatus().linked ? remotePrompt(`${BASE}/_artifacts`, canShare()) : '') + (notes ? workerNotesPrompt(notesFile(meta.id)) : '') + (settings.issues?.repo ? issuesPrompt() : '') + agentsPrompt(),
     }
   }
   return () => ({
@@ -492,8 +493,10 @@ function resumeHistory(claudeId: string): Session {
 // that ended stay unheard until a message that can carry them.
 function hiddenFor(s: Session, parts: Part[]): { hidden?: string; tasks?: string[] } {
   if (slashCommand(parts)) return {}
-  if (s.meta.kind === 'lead') return { hidden: board() }
+  const status = agentStatusText(s.meta.id)
+  if (s.meta.kind === 'lead') return { hidden: [board(), status].filter(Boolean).join('\n\n') }
   const out: string[] = []
+  if (status) out.push(status)
   if (s.meta.movedFrom) {
     out.push(`[Codinger] This session moved, as you asked with move_to_folder. Your working directory is now ${s.meta.cwd}; it was ${s.meta.movedFrom}. Your notes file is now ${notesPath(s.meta)}.`)
     delete s.meta.movedFrom
@@ -1217,6 +1220,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   // A request no route answers says which one it was, so its error is of use where it shows.
   const notFound = () => new HttpError(404, `Not found: ${method} ${url.pathname}`)
 
+  // The rest of the agent (server/agentstatus.ts), for the sidebar's panel.
+  if (a === 'agent-status' && method === 'GET') return send(res, 200, { status: agentStatus() })
   // Remote access (server/remote.ts): set up on this machine only, not from the web.
   if (a === 'remote') {
     if (method === 'GET' && !id) return send(res, 200, remoteStatus())

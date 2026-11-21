@@ -23,6 +23,13 @@ A new session starts in the agent's home folder unless the person picks another 
 work at a desk is on the agent itself, not in a project. Set `CODINGER_DEFAULT_DIR` in
 `codinger.env` to start somewhere else (`CODINGER_AGENT_CWD`, if set, is the default otherwise).
 
+An agent with jobs of its own (routines on timers, a chat listener) can show them at its desk:
+`CODINGER_AGENT_STATUS` names a command that Codinger runs every 15 seconds in the agent's folder.
+It prints JSON, `{text, summary, busy, warn, sections: [{title, rows: [[label, value]]}]}`, or
+plain text. `summary` is a line under the agent's name that opens to `sections`. `text` goes to
+a session with its next message when it changed since that session last heard, so keep it to
+what calls for care (a job running now, a service down) and empty when all is calm.
+
 Update: build in `/opt/codinger`, then `sudo systemctl restart codinger-workwith`.
 
 Several desks on one site: when the proxy serves each under its own path and passes the path

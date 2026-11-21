@@ -14,6 +14,9 @@
 //                           once, with no dialog (people at a desk have no other folder to pick)
 //   CODINGER_DEFAULT_DIR    the folder the new session dialog starts in (unset: the agent's folder,
 //                           else the home folder); for a desk where most work is not in a project
+//   CODINGER_AGENT_STATUS   (server/agentstatus.ts) a command that says what else of the agent is at
+//                           work (its jobs, listeners): a line under its name, and a note to Claude
+//                           when that changes
 //   CODINGER_USER_HEADER    the header the proxy names the signed-in person in
 //   CODINGER_PEOPLE         names to show: "ada@example.com=Ada,grace@example.com=Grace"
 //                           (otherwise the login before the @, capitalised)
